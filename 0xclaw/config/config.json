@@ -1,0 +1,45 @@
+{
+  "agents": {
+    "defaults": {
+      "workspace": "./workspace",
+      "model": "qwen3-30b-a3b-instruct-2507",
+      "provider": "flock",
+      "maxTokens": 8192,
+      "temperature": 0.1,
+      "maxToolIterations": 50,
+      "memoryWindow": 100
+    }
+  },
+  "providers": {
+    "flock": {
+      "apiKey": "${FLOCK_API_KEY}",
+      "apiBase": "https://api.flock.io/v1",
+      "extraHeaders": {
+        "x-litellm-api-key": "${FLOCK_API_KEY}"
+      }
+    },
+    "venice": {
+      "apiKey": "${VENICE_API_KEY}",
+      "apiBase": "https://api.venice.ai/api/v1"
+    },
+    "anthropic": {
+      "apiKey": "${ANTHROPIC_API_KEY}"
+    }
+  },
+  "tools": {
+    "exec": {
+      "timeout": 120
+    },
+    "web": {
+      "search": {
+        "apiKey": "${BRAVE_API_KEY}"
+      }
+    }
+  },
+  "gateway": {
+    "heartbeat": {
+      "enabled": true,
+      "intervalS": 21600
+    }
+  }
+}

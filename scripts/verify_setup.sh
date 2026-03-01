@@ -1,0 +1,109 @@
+#!/usr/bin/env bash
+# Verify 0xClaw setup and API key connectivity
+# Requires: conda env '0xclaw'
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+# Activate conda env if not already in it
+if [[ "${CONDA_DEFAULT_ENV:-}" != "0xclaw" ]]; then
+  # shellcheck disable=SC1091
+  source "$(conda info --base)/etc/profile.d/conda.sh"
+  conda activate 0xclaw
+fi
+
+# Load .env
+if [[ -f "$PROJECT_ROOT/.env" ]]; then
+  set -a; source "$PROJECT_ROOT/.env"; set +a
+fi
+
+echo "=== 0xClaw Setup Verification ==="
+echo ""
+
+# Check nanobot import
+echo -n "nanobot import... "
+if python -c "import nanobot; print('OK v' + nanobot.__version__)" 2>/dev/null; then
+  :
+else
+  echo "FAIL — run: conda run -n 0xclaw pip install -e nanobot/"
+fi
+
+# Check workspace files
+echo ""
+echo "Workspace files:"
+for f in SOUL.md AGENTS.md HEARTBEAT.md memory/MEMORY.md; do
+  if [[ -f "$PROJECT_ROOT/workspace/$f" ]]; then
+    echo "  ✓ workspace/$f"
+  else
+    echo "  ✗ workspace/$f MISSING"
+  fi
+done
+
+echo ""
+echo "Skills:"
+for skill in hackathon-research idea planner coder tester doc; do
+  if [[ -f "$PROJECT_ROOT/workspace/skills/$skill/SKILL.md" ]]; then
+    echo "  ✓ skills/$skill/SKILL.md"
+  else
+    echo "  ✗ skills/$skill/SKILL.md MISSING"
+  fi
+done
+
+# Check API keys
+echo ""
+echo "API Keys:"
+check_key() {
+  local name=$1
+  local value=${2:-}
+  if [[ -n "$value" ]]; then
+    echo "  ✓ $name (${value:0:8}...)"
+  else
+    echo "  ✗ $name NOT SET"
+  fi
+}
+check_key "FLOCK_API_KEY"   "${FLOCK_API_KEY:-}"
+check_key "VENICE_API_KEY"  "${VENICE_API_KEY:-}"
+check_key "VIRTUALS_API_KEY" "${VIRTUALS_API_KEY:-}"
+check_key "MEMBASE_ID"      "${MEMBASE_ID:-}"
+
+# Test FLock connectivity
+echo ""
+echo "API Connectivity:"
+if [[ -n "${FLOCK_API_KEY:-}" ]]; then
+  echo -n "  FLock.io... "
+  RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" \
+    -X POST "https://api.flock.io/v1/chat/completions" \
+    -H "Content-Type: application/json" \
+    -H "x-litellm-api-key: $FLOCK_API_KEY" \
+    -d '{"model":"qwen3-30b-a3b-instruct-2507","messages":[{"role":"user","content":"hi"}],"max_tokens":5}' \
+    --max-time 10 2>/dev/null || echo "000")
+  if [[ "$RESPONSE" == "200" ]]; then
+    echo "✓ reachable (200)"
+  else
+    echo "✗ HTTP $RESPONSE"
+  fi
+else
+  echo "  FLock.io... skipped (no key)"
+fi
+
+if [[ -n "${VENICE_API_KEY:-}" ]]; then
+  echo -n "  Venice.ai... "
+  RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" \
+    -X POST "https://api.venice.ai/api/v1/chat/completions" \
+    -H "Content-Type: application/json" \
+    -H "Authorization: Bearer $VENICE_API_KEY" \
+    -d '{"model":"qwen2.5-coder-32b","messages":[{"role":"user","content":"hi"}],"max_tokens":5}' \
+    --max-time 10 2>/dev/null || echo "000")
+  if [[ "$RESPONSE" == "200" ]]; then
+    echo "✓ reachable (200)"
+  else
+    echo "✗ HTTP $RESPONSE"
+  fi
+else
+  echo "  Venice.ai... skipped (no key)"
+fi
+
+echo ""
+echo "=== Verification Complete ==="
+echo "Run './scripts/start.sh' to launch 0xClaw"
