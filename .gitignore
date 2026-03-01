@@ -20,6 +20,7 @@ workspace/hackathon/submission/
 # Agent runtime state
 workspace/.cron/
 workspace/.history/
+workspace/sessions/
 workspace/memory/HISTORY.md
 
 # =============================================================================
@@ -62,6 +63,9 @@ coverage.xml
 # =============================================================================
 # Tools and OS
 # =============================================================================
+
+# Claude Code local session data
+.claude/
 
 .DS_Store
 .pixi/
