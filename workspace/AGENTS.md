@@ -5,37 +5,131 @@
 Trigger this pipeline when user says: "run hackathon", "start pipeline", "go",
 or provides a hackathon URL.
 
+## Skill Composition Model (Important)
+
+Use this rule to avoid confusion when many skills exist:
+
+1. Base skill = one phase owner. Each phase has exactly one primary role skill:
+   `hackathon-research` -> `idea` -> `planner` -> `coder` -> `tester` -> `doc`
+2. Overlay skills = shared methods that can be attached to many phases:
+   - `iterative-retrieval`: iterative context gathering before major decisions
+   - `tdd-workflow`: RED -> GREEN -> REFACTOR coding loop
+   - `eval-harness`: define and run explicit acceptance checks
+   - `coding-standards`: consistent structure/style/quality gate
+3. Call order inside a phase:
+   - Pre-step (optional): `iterative-retrieval`
+   - Execute phase owner (base skill)
+   - Validate/normalize (overlay): `eval-harness` or `coding-standards` as needed
+
 ### Phase 1 — Research
-Use the `hackathon-research` skill to spawn a research agent.
-The agent produces: `workspace/hackathon/context.json`
+Trigger cues:
+- "phase 1"
+- "run research"
+- "start with hackathon analysis"
+- "先做调研"
+
+Base skill:
+- Use `hackathon-research` to spawn a research agent.
+
+Overlay skills:
+- Use `iterative-retrieval` before finalizing report fields.
+
+Output:
+- `workspace/hackathon/context.json`
 
 ### Phase 2 — Ideation
-Use the `idea` skill to spawn an idea agent.
-The agent reads context.json and produces: `workspace/hackathon/ideas.json`
+Trigger cues:
+- "phase 2"
+- "generate ideas"
+- "brainstorm 3 ideas"
+- "开始创意阶段"
+
+Base skill:
+- Use `idea` to spawn an idea agent.
+
+Overlay skills:
+- Optional `iterative-retrieval` if sponsor/API context is weak.
+
+Output:
+- `workspace/hackathon/ideas.json`
 
 ### Phase 3 — Selection (Orchestrator)
+Trigger cues:
+- "phase 3"
+- "pick the best idea"
+- "select idea"
+- "帮我选题"
+
 Read `ideas.json`. Select the idea with the highest composite score.
 Confirm with user if score difference < 0.5.
 Write: `workspace/hackathon/selected_idea.json`
 
 ### Phase 4 — Planning
-Use the `planner` skill to spawn a planner agent.
-Produces: `workspace/hackathon/plan.md` and `workspace/hackathon/tasks.json`
+Trigger cues:
+- "phase 4"
+- "plan architecture"
+- "make implementation plan"
+- "开始技术规划"
+
+Base skill:
+- Use `planner` to spawn a planner agent.
+
+Overlay skills:
+- Use `iterative-retrieval` for API/docs clarification before freezing architecture.
+- Use `eval-harness` to define acceptance criteria for each epic/task.
+
+Outputs:
+- `workspace/hackathon/plan.md`
+- `workspace/hackathon/tasks.json`
 
 ### Phase 5 — Implementation
+Trigger cues:
+- "phase 5"
+- "start coding"
+- "implement tasks"
+- "开始实现"
+
 Read tasks.json. For each epic with priority "critical" or "high":
-- Use the `coder` skill to spawn one coder agent per epic
+- Use the `coder` skill to spawn one coder agent per epic (base skill)
 - Agents write to `workspace/hackathon/project/{component}/`
 - Run epics in parallel where no dependencies exist
+- Apply `tdd-workflow` inside each coder execution.
+- Apply `coding-standards` before marking each task done.
 
 ### Phase 6 — Testing
-Use the `tester` skill to spawn a tester agent.
-Produces: `workspace/hackathon/test_results.json`
-If status is "fail": spawn targeted fix agents using the `coder` skill.
+Trigger cues:
+- "phase 6"
+- "run tests"
+- "validate build"
+- "开始测试"
+
+Base skill:
+- Use `tester` to spawn a tester agent.
+
+Overlay skills:
+- Use `eval-harness` to run acceptance checks defined in Phase 4.
+
+Output:
+- `workspace/hackathon/test_results.json`
+
+If status is "fail", spawn targeted fix agents using `coder` (+ `tdd-workflow`).
 
 ### Phase 7 — Documentation
-Use the `doc` skill to spawn a doc agent.
-Produces: `workspace/hackathon/submission/README.md` and `SUBMISSION.md`
+Trigger cues:
+- "phase 7"
+- "prepare docs"
+- "generate submission package"
+- "开始文档与提交材料"
+
+Base skill:
+- Use `doc` to spawn a doc agent.
+
+Overlay skills:
+- Apply `coding-standards` for consistent structure/tone/terminology.
+
+Outputs:
+- `workspace/hackathon/submission/README.md`
+- `workspace/hackathon/submission/SUBMISSION.md`
 
 ---
 
