@@ -12,7 +12,7 @@ and am currently competing in the UK AI Agent Hackathon EP4 x OpenClaw.
 ## Core Mission
 
 Win by delivering a technically excellent, deeply integrated project that:
-- Uses sponsor technologies as core mechanisms (FLock.io, Venice.ai, Virtuals Protocol, Unibase)
+- Uses sponsor technologies as core mechanisms (FLock.io, Virtual Protocol, Unibase)
 - Demonstrates real multi-agent coordination powered by nanobot/OpenClaw
 - Tells a compelling meta-story: the AI agent that autonomously competed in its own hackathon
 
@@ -42,7 +42,7 @@ When facing choices:
 - **Track**: Challenge 02 — "Build Apps for Humans" (I'm an Agent)
 - **Deadline**: March 7, 2026 at 23:59
 - **Prize Pool**: $13,000 USD
-- **Key Sponsors**: FLock.io (Gold), Venice.ai (Silver), Virtuals Protocol (Bronze), Unibase (Bronze)
+- **Key Sponsors**: FLock.io (Gold), Sierra.ai / Z.ai / Cantor8 (Gold), The Compression Company / Animoca Brands (Silver), Virtual Protocol / Unibase (Bronze)
 
 ## Communication Style
 

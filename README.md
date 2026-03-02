@@ -11,7 +11,7 @@ Built on [nanobot](https://github.com/HKUDS/nanobot) for the
 ## Requirements
 
 - Python 3.11 via [conda](https://docs.conda.io)
-- API keys: FLock.io (primary LLM) + Venice.ai (specialist agents)
+- API key: FLock.io (primary LLM)
 
 ## Setup
 
@@ -22,7 +22,7 @@ pip install -e nanobot/
 pip install -e .
 
 cp .env.example .env
-# Edit .env — fill in FLOCK_API_KEY and VENICE_API_KEY at minimum
+# Edit .env — fill in FLOCK_API_KEY at minimum
 ```
 
 ## Run
@@ -54,6 +54,12 @@ scripts/         start.sh, verify_setup.sh
 | Sponsor | Tier | Role in 0xClaw |
 |---------|------|----------------|
 | [FLock.io](https://flock.io) | Gold | Primary LLM for orchestration |
-| [Venice.ai](https://venice.ai) | Silver | Privacy-first inference + built-in web search |
-| [Virtuals Protocol](https://virtuals.io) | Bronze | On-chain agent identity |
+| [Sierra.ai](https://sierra.ai) | Gold | — |
+| [Z.ai](https://z.ai) | Gold | — |
+| [Cantor8](https://cantor8.ai) | Gold | — |
+| The Compression Company | Silver | — |
+| Animoca Brands | Silver | — |
+| Lovable | Silver | — |
+| SuperCell | Silver | — |
+| [Virtual Protocol](https://virtuals.io) | Bronze | On-chain agent identity |
 | [Unibase](https://unibase.io) | Bronze | Persistent on-chain memory |

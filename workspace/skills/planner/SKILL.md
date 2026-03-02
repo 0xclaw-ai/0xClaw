@@ -33,7 +33,7 @@ Step 2 — Architecture Design:
 Step 3 — Tech Stack Decision:
   For each component, specify technology and rationale:
   - Backend: language + framework (prefer Python FastAPI or similar)
-  - AI inference: FLock API (primary) + Venice API (privacy/fallback)
+  - AI inference: FLock API (primary)
   - Storage: SQLite (local), PostgreSQL (if scale needed), or Redis (caching)
   - Blockchain: specify chain, SDK, and specific contract/API calls
   - Frontend: minimal (Gradio/Streamlit preferred for speed), or None if pure API
@@ -52,7 +52,7 @@ Step 5 — 7-Day Timeline:
   Map tasks to days. Guard against overloading any single day.
   Day 1: Setup + scaffold + CI (max 6 hours coding)
   Day 2: Core backend APIs + data models
-  Day 3: AI integration (FLock + Venice) + core agent logic
+  Day 3: AI integration (FLock) + core agent logic
   Day 4: Blockchain integration (Virtuals + Unibase)
   Day 5: Frontend/demo layer + error handling + edge cases
   Day 6: Testing + README + submission prep
@@ -69,7 +69,7 @@ Step 6 — Write outputs:
     "tech_stack": {
       "backend": "Python 3.11 + FastAPI",
       "ai_primary": "FLock API (qwen3-30b-a3b-instruct-2507)",
-      "ai_privacy": "Venice API (qwen2.5-coder-32b)",
+      "ai_privacy": null,
       "blockchain": "string or null",
       "storage": "string",
       "frontend": "string or null"

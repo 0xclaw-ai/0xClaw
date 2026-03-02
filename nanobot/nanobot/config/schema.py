@@ -248,7 +248,6 @@ class ProvidersConfig(Base):
 
     custom: ProviderConfig = Field(default_factory=ProviderConfig)  # Any OpenAI-compatible endpoint
     flock: ProviderConfig = Field(default_factory=ProviderConfig)    # FLock.io decentralized AI hub
-    venice: ProviderConfig = Field(default_factory=ProviderConfig)   # Venice.ai privacy-first AI
     anthropic: ProviderConfig = Field(default_factory=ProviderConfig)
     openai: ProviderConfig = Field(default_factory=ProviderConfig)
     openrouter: ProviderConfig = Field(default_factory=ProviderConfig)

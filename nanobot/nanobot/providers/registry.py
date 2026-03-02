@@ -103,24 +103,6 @@ PROVIDERS: tuple[ProviderSpec, ...] = (
         model_overrides=(),
     ),
 
-    # Venice.ai: privacy-first AI, zero data retention, OpenAI-compatible.
-    ProviderSpec(
-        name="venice",
-        keywords=("venice",),
-        env_key="VENICE_API_KEY",
-        display_name="Venice.ai",
-        litellm_prefix="openai",
-        skip_prefixes=(),
-        env_extras=(),
-        is_gateway=True,
-        is_local=False,
-        detect_by_key_prefix="",
-        detect_by_base_keyword="venice.ai",
-        default_api_base="https://api.venice.ai/api/v1",
-        strip_model_prefix=True,
-        model_overrides=(),
-    ),
-
     # OpenRouter: global gateway, keys start with "sk-or-"
     ProviderSpec(
         name="openrouter",

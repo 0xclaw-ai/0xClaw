@@ -66,9 +66,9 @@ Step 5 — Write output to workspace/hackathon/ideas.json:
       },
       "sponsor_integrations": {
         "flock": "exact role in the system",
-        "venice": "exact role or null",
         "virtuals": "exact role or null",
-        "unibase": "exact role or null"
+        "unibase": "exact role or null",
+        "other": "any other confirmed sponsor integrated, or null"
       },
       "architecture_sketch": "ASCII text diagram of key components",
       "mvp_scope": "exactly what can be demoed in 7 days",

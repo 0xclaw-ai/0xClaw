@@ -74,42 +74,6 @@ async def flock_complete(prompt: str, system: str = "") -> str:
     return response.choices[0].message.content
 ```
 
-## Venice.ai (use for PRIVACY-SENSITIVE tasks, CODE generation, or when WEB SEARCH is needed)
-```python
-venice_client = AsyncOpenAI(
-    api_key=os.environ["VENICE_API_KEY"],
-    base_url="https://api.venice.ai/api/v1",
-)
-
-async def venice_complete(
-    prompt: str,
-    model: str = "llama-3.3-70b",
-    web_search: bool = False,
-) -> str:
-    """
-    Models:
-      llama-3.3-70b                          — general purpose, private, reliable
-      qwen3-coder-480b-a35b-instruct-turbo   — best coding model, private
-      zai-org-glm-4.7-flash                  — fast agents, private, cheap
-      qwen3-235b-a22b-thinking-2507          — reasoning tasks, private
-
-    Venice never logs prompts (privacy-first inference).
-    Set web_search=True to get live search results with no extra API key.
-    """
-    venice_params = {"include_venice_system_prompt": False}
-    if web_search:
-        venice_params["enable_web_search"] = "auto"
-        venice_params["enable_web_citations"] = True
-
-    response = await venice_client.chat.completions.create(
-        model=model,
-        messages=[{"role": "user", "content": prompt}],
-        max_tokens=4096,
-        extra_body={"venice_parameters": venice_params},
-    )
-    return response.choices[0].message.content
-```
-
 ## Virtuals Protocol (agent identity + GAME framework)
 ```python
 from virtuals_sdk import game
