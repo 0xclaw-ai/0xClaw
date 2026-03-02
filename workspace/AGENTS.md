@@ -66,12 +66,6 @@ These are non-negotiable for maximum scoring:
 - Auth: `x-litellm-api-key: $FLOCK_API_KEY`
 - Preferred model: `qwen3-30b-a3b-instruct-2507`
 
-**Venice.ai (Silver Sponsor)**
-- Use for privacy-sensitive operations and when the project needs built-in web search
-- API: `https://api.venice.ai/api/v1` (OpenAI-compatible, Bearer token)
-- Preferred model: `llama-3.3-70b` (general); `qwen3-coder-480b-a35b-instruct-turbo` (coding)
-- Key differentiator: pass `extra_body={"venice_parameters": {"enable_web_search": "auto", "include_venice_system_prompt": False}}` for live search with no extra API key
-
 **Virtuals Protocol (Bronze Sponsor)**
 - Create on-chain agent identities via GAME SDK
 - SDK: `pip install virtuals_sdk`
@@ -81,6 +75,10 @@ These are non-negotiable for maximum scoring:
 - Persistent cross-session agent memory on-chain
 - SDK: `pip install git+https://github.com/unibaseio/aip-agent`
 - Use to store agent decisions with verifiable history
+
+**Other confirmed sponsors** (Silver: The Compression Company, Animoca Brands, Lovable, SuperCell;
+Gold: Sierra.ai, Z.ai, Cantor8) — integrate where relevant to the chosen project idea.
+ManusAI is a co-host/partner (not a sponsor) but their autonomous agent platform is very relevant.
 
 ---
 

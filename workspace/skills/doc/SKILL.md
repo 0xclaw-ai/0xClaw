@@ -47,9 +47,6 @@ Step 3 — Generate README.md:
   ### FLock.io (Gold Sponsor)
   {Exactly how FLock is used — specific API calls, models, role in system}
 
-  ### Venice.ai (Silver Sponsor)
-  {Exactly how Venice is used}
-
   ### Virtuals Protocol (Bronze Sponsor)
   {Exactly how Virtuals is used}
 
@@ -75,7 +72,7 @@ Step 3 — Generate README.md:
   the nanobot framework (Python implementation of the OpenClaw ecosystem).
   0xClaw participated in and submitted to this very hackathon.
 
-  Built with: nanobot | FLock.io | Venice.ai | Virtuals Protocol | Unibase
+  Built with: nanobot | FLock.io | Virtual Protocol | Unibase
 
 Step 4 — Generate SUBMISSION.md:
   - DoraHacks BUIDL tagline (< 160 characters, compelling)

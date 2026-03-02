@@ -39,7 +39,6 @@ Step 5 — Unit Tests:
 
 Step 6 — Sponsor API Smoke Tests:
   FLock.io: Check FLOCK_API_KEY is set. If set, run a minimal completion request.
-  Venice.ai: Check VENICE_API_KEY is set. If set, run a minimal completion request.
   Virtuals: Check VIRTUALS_API_KEY is set.
   Unibase: Check MEMBASE_ID and MEMBASE_ACCOUNT are set.
 
@@ -58,7 +57,6 @@ Step 7 — Write report to workspace/hackathon/test_results.json:
   },
   "sponsor_integrations": {
     "flock": {"configured": true, "reachable": true, "notes": "string"},
-    "venice": {"configured": false, "reachable": false, "notes": "API key missing"},
     "virtuals": {"configured": false, "reachable": null, "notes": "string"},
     "unibase": {"configured": false, "reachable": null, "notes": "string"}
   },
@@ -73,7 +71,7 @@ Step 7 — Write report to workspace/hackathon/test_results.json:
   ],
   "fix_priority": [
     "1. Fix import error in agents/orchestrator.py line 12",
-    "2. Add VENICE_API_KEY to environment"
+    "2. Set VIRTUALS_API_KEY + MEMBASE_ID in environment"
   ],
   "demo_readiness": "not_ready|partially_ready|ready"
 }

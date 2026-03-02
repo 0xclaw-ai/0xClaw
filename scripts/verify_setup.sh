@@ -87,23 +87,6 @@ else
   echo "  FLock.io... skipped (no key)"
 fi
 
-if [[ -n "${VENICE_API_KEY:-}" ]]; then
-  echo -n "  Venice.ai... "
-  RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" \
-    -X POST "https://api.venice.ai/api/v1/chat/completions" \
-    -H "Content-Type: application/json" \
-    -H "Authorization: Bearer $VENICE_API_KEY" \
-    -d '{"model":"qwen2.5-coder-32b","messages":[{"role":"user","content":"hi"}],"max_tokens":5}' \
-    --max-time 10 2>/dev/null || echo "000")
-  if [[ "$RESPONSE" == "200" ]]; then
-    echo "✓ reachable (200)"
-  else
-    echo "✗ HTTP $RESPONSE"
-  fi
-else
-  echo "  Venice.ai... skipped (no key)"
-fi
-
 echo ""
 echo "=== Verification Complete ==="
 echo "Run './scripts/start.sh' to launch 0xClaw"

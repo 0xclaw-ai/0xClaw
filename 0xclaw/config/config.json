@@ -18,10 +18,6 @@
         "x-litellm-api-key": "${FLOCK_API_KEY}"
       }
     },
-    "venice": {
-      "apiKey": "${VENICE_API_KEY}",
-      "apiBase": "https://api.venice.ai/api/v1"
-    },
     "anthropic": {
       "apiKey": "${ANTHROPIC_API_KEY}"
     }

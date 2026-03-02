@@ -14,7 +14,6 @@ If progress.md doesn't exist yet: report "Pipeline not started. Ready to begin."
 ### sponsor-integration-check
 Once per day, verify:
 - FLock API key is set and reachable (test with a minimal completion request)
-- Venice API key is set and reachable
 - Report status to user
 
 ---

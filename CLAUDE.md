@@ -23,9 +23,19 @@ cp .env.example .env           # first time only; fill in real API keys
 
 Required `.env` keys:
 - `FLOCK_API_KEY` — from platform.flock.io (needs budget; 400 = budget exhausted)
-- `VENICE_API_KEY` — from venice.ai/settings/api (format: `vapi_...`)
 - `VIRTUALS_API_KEY` — from game.virtuals.io (Bronze sponsor, can defer)
 - `MEMBASE_ID` / `MEMBASE_ACCOUNT` / `MEMBASE_SECRET_KEY` — Unibase (can defer)
+
+---
+
+## Sponsors (from Luma — authoritative)
+
+| Tier | Sponsors |
+|------|---------|
+| Gold | FLock.io, Sierra.ai, Z.ai, Cantor8 |
+| Silver | The Compression Company, Animoca Brands, Lovable, Anyway, SuperCell, AfterQuery |
+| Bronze | Virtual Protocol, Unibase |
+| Partner | ManusAI (co-host, not sponsor — autonomous agent platform) |
 
 ---
 
@@ -37,16 +47,16 @@ Layer 1 — 0xClaw (the agent we maintain)
   workspace/ holds identity, skills, memory
   spawn() creates sub-agents for each pipeline phase
 
-    hackathon-research  →  Venice (enable_web_search="auto")
+    hackathon-research  →  FLock
     idea                →  FLock
     planner             →  FLock
-    coder × N           →  Venice (qwen3-coder-480b-a35b-instruct-turbo)
+    coder × N           →  FLock
     tester              →  FLock
     doc                 →  FLock
 
 Layer 2 — Generated project (what 0xClaw produces)
   workspace/hackathon/project/
-  Uses FLock + Venice + Virtuals + Unibase
+  Uses FLock + Virtual Protocol + Unibase + other sponsors as relevant
   Submitted to DoraHacks as the hackathon entry
 ```
 
@@ -64,8 +74,8 @@ Layer 2 — Generated project (what 0xClaw produces)
 | `workspace/memory/MEMORY.md` | Persistent agent facts (read every turn) |
 | `workspace/skills/*/SKILL.md` | Spawn task templates for each pipeline phase |
 | `0xclaw/tools/` | Custom tools — **Virtuals + Unibase not yet written** |
-| `nanobot/nanobot/providers/registry.py` | FLock + Venice provider specs (we added these) |
-| `nanobot/nanobot/config/schema.py` | ProvidersConfig (we added flock + venice fields) |
+| `nanobot/nanobot/providers/registry.py` | FLock provider spec (we added this) |
+| `nanobot/nanobot/config/schema.py` | ProvidersConfig (we added flock field) |
 | `scripts/start.sh` | Startup script (activates conda, installs nanobot if needed) |
 | `scripts/verify_setup.sh` | Pre-flight check for deps, workspace, API keys |
 
@@ -83,8 +93,8 @@ Sub-agents have no shared memory — the full task context must be in the task s
 **Workspace bootstrap files** — `SOUL.md`, `AGENTS.md`, `HEARTBEAT.md` are loaded into the
 system prompt every turn by `ContextBuilder`. `MEMORY.md` is loaded separately.
 
-**`sync_workspace_templates`** — called at startup; only creates workspace files that are
-*missing*. Never overwrites our custom files.
+**`sync_workspace_templates`** — called at startup; only creates missing workspace files.
+Never overwrites our custom files.
 
 ---
 
@@ -97,22 +107,15 @@ system prompt every turn by `ContextBuilder`. `MEMORY.md` is loaded separately.
 - LiteLLM routes as `openai/qwen3-30b-a3b-instruct-2507` with api_base override
 - **Common error**: HTTP 400 `budget_exceeded` → top up credits at platform.flock.io
 
-### Venice.ai (Silver sponsor — specialist sub-agents)
-- Endpoint: `https://api.venice.ai/api/v1`
-- Auth: `Authorization: Bearer vapi_...`
-- Private models (no logging): `llama-3.3-70b`, `zai-org-glm-4.7-flash`, `qwen3-coder-480b-a35b-instruct-turbo`
-- Web search (no extra API key): `extra_body={"venice_parameters": {"enable_web_search": "auto"}}`
-- All private models support function calling — can be used for agent tasks
-- **Common error**: HTTP 401 → wrong or missing API key
-
 ---
 
-## Current status (as of Day 1 complete)
+## Current status (as of Day 2)
 
 **Done:**
 - Full project scaffolding, skills, config, workspace files
-- FLock + Venice registered in nanobot providers
+- FLock registered in nanobot providers
 - conda env `0xclaw` set up with all deps
+- Sponsor list confirmed from Luma (authoritative source)
 
 **Blocked / not started:**
 - Pipeline never run — `workspace/hackathon/` is empty (project + submission dirs exist but empty)
@@ -120,7 +123,7 @@ system prompt every turn by `ContextBuilder`. `MEMORY.md` is loaded separately.
 - No project idea selected — needs pipeline to run, then human confirmation
 
 **Immediate next steps:**
-1. Top up FLock credits + get real Venice API key
+1. Top up FLock credits (platform.flock.io — currently budget_exceeded)
 2. Run agent → trigger `hackathon-research` → produces `context.json`
 3. Run `idea` skill → produces `ideas.json` → **human selects the idea**
 4. Write `0xclaw/tools/virtuals_tool.py` + `unibase_tool.py`
@@ -130,7 +133,7 @@ system prompt every turn by `ContextBuilder`. `MEMORY.md` is loaded separately.
 
 ## Rules and constraints
 
-- **Never modify nanobot source** except `registry.py` and `schema.py` (FLock + Venice additions)
+- **Never modify nanobot source** except `registry.py` and `schema.py` (FLock addition)
 - **Never commit `.env`** — it's gitignored, but double-check before any push
 - **Workspace hackathon outputs are gitignored** — `context.json`, `ideas.json`, `plan.md`,
   `tasks.json`, `project/`, `submission/` are all runtime artefacts
