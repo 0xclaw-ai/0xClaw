@@ -51,15 +51,6 @@ scripts/         start.sh, verify_setup.sh
 
 ## Sponsors
 
-| Sponsor | Tier | Role in 0xClaw |
-|---------|------|----------------|
-| [FLock.io](https://flock.io) | Gold | Primary LLM for orchestration |
-| [Sierra.ai](https://sierra.ai) | Gold | — |
-| [Z.ai](https://z.ai) | Gold | — |
-| [Cantor8](https://cantor8.ai) | Gold | — |
-| The Compression Company | Silver | — |
-| Animoca Brands | Silver | — |
-| Lovable | Silver | — |
-| SuperCell | Silver | — |
-| [Virtual Protocol](https://virtuals.io) | Bronze | On-chain agent identity |
-| [Unibase](https://unibase.io) | Bronze | Persistent on-chain memory |
+Gold: FLock.io · Sierra.ai · Z.ai · Cantor8
+Silver: The Compression Company · Animoca Brands · Lovable · Anyway · SuperCell · AfterQuery
+Bronze: [Virtual Protocol](https://virtuals.io) · [Unibase](https://unibase.io)
