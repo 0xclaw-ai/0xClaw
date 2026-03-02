@@ -73,7 +73,8 @@ Layer 2 — Generated project (what 0xClaw produces)
 | `workspace/HEARTBEAT.md` | Scheduled tasks (countdown, API health) |
 | `workspace/memory/MEMORY.md` | Persistent agent facts (read every turn) |
 | `workspace/skills/*/SKILL.md` | Spawn task templates for each pipeline phase |
-| `0xclaw/tools/` | Custom tools — **Virtuals + Unibase not yet written** |
+| `0xclaw/tools/virtuals_tool.py` | Virtual Protocol GAME SDK — registers on-chain agent identity |
+| `0xclaw/tools/unibase_tool.py` | Unibase membase — persistent on-chain agent memory |
 | `nanobot/nanobot/providers/registry.py` | FLock provider spec (we added this) |
 | `nanobot/nanobot/config/schema.py` | ProvidersConfig (we added flock field) |
 | `scripts/start.sh` | Startup script (activates conda, installs nanobot if needed) |
@@ -119,15 +120,13 @@ Never overwrites our custom files.
 
 **Blocked / not started:**
 - Pipeline never run — `workspace/hackathon/` is empty (project + submission dirs exist but empty)
-- `0xclaw/tools/` is empty — Virtuals tool and Unibase tool not written yet
 - No project idea selected — needs pipeline to run, then human confirmation
 
 **Immediate next steps:**
-1. Top up FLock credits (platform.flock.io — currently budget_exceeded)
+1. Resolve FLock budget (currently HTTP 400 `budget_exceeded` despite credited account — check per-key limit at platform.flock.io)
 2. Run agent → trigger `hackathon-research` → produces `context.json`
 3. Run `idea` skill → produces `ideas.json` → **human selects the idea**
-4. Write `0xclaw/tools/virtuals_tool.py` + `unibase_tool.py`
-5. Run full pipeline from planner onward
+4. Run full pipeline from planner onward
 
 ---
 

@@ -27,6 +27,11 @@ from nanobot.providers.litellm_provider import LiteLLMProvider
 from nanobot.providers.custom_provider import CustomProvider
 from nanobot.session.manager import SessionManager
 
+# Custom sponsor tools
+sys.path.insert(0, str(Path(__file__).parent))
+from tools.virtuals_tool import VirtualsTool
+from tools.unibase_tool import UnibaseTool
+
 console = Console()
 
 CONFIG_PATH = ROOT / "0xclaw" / "config" / "config.json"
@@ -122,6 +127,10 @@ async def run_interactive(config: Config) -> None:
         cron_service=cron,
         session_manager=session_manager,
     )
+
+    # Register sponsor tools
+    agent.tools.register(VirtualsTool())
+    agent.tools.register(UnibaseTool())
 
     history_path = WORKSPACE / ".history" / "cli_history"
     history_path.parent.mkdir(parents=True, exist_ok=True)
