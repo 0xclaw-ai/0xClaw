@@ -11,7 +11,7 @@ Generate 3 creative, feasible, and sponsor-integrated project ideas for a hackat
 Score each idea on multiple dimensions and recommend the best one.
 
 ## When to Use
-After hackathon research is complete (`workspace/hackathon/context.json` exists).
+After hackathon research is complete (`hackathon/context.json` exists).
 
 ## Spawn Task Template
 
@@ -20,7 +20,7 @@ After hackathon research is complete (`workspace/hackathon/context.json` exists)
 Goal: Generate 3 winning project ideas for the hackathon.
 
 Step 1 — Load Context:
-  read_file("workspace/hackathon/context.json")
+  read_file("hackathon/context.json")
 
 Step 2 — Analyze sponsor landscape:
   - Identify Gold sponsors (highest priority for integration)
@@ -47,7 +47,7 @@ Step 4 — Score each idea on these dimensions (1-5 each):
 
   composite = (innovation*1.5 + feasibility*2.0 + sponsor_depth*2.0 + demo_impact*2.0 + market_fit*1.5) / 9.0
 
-Step 5 — Write output to workspace/hackathon/ideas.json:
+Step 5 — Write output using write_file("hackathon/ideas.json", ...):
 {
   "ideas": [
     {
@@ -88,7 +88,10 @@ Step 5 — Write output to workspace/hackathon/ideas.json:
   "recommendation_rationale": "2-3 sentences explaining the choice",
   "generated_at": "ISO timestamp"
 }
+
+STOP HERE. Do NOT proceed to planning or any other phase.
+Your task is complete once ideas.json is written.
 ```
 
 ## Output File
-- `workspace/hackathon/ideas.json`
+- `hackathon/ideas.json`

@@ -11,7 +11,7 @@ Implement a specific task from the project plan. Write complete, runnable, teste
 No stubs. No TODOs. No placeholders.
 
 ## When to Use
-When orchestrator assigns a specific epic or task from `workspace/hackathon/tasks.json`.
+When orchestrator assigns a specific epic or task from `hackathon/tasks.json`.
 
 ## Spawn Task Template
 
@@ -22,17 +22,17 @@ Replace `{EPIC_ID}`, `{TASK_DESCRIPTION}`, and `{COMPONENT}` before spawning.
 Goal: Implement {TASK_DESCRIPTION}
 
 Step 1 — Load context:
-  read_file("workspace/hackathon/selected_idea.json")
-  read_file("workspace/hackathon/plan.md")
-  read_file("workspace/hackathon/tasks.json")
-  list_dir("workspace/hackathon/project/")
+  read_file("hackathon/selected_idea.json")
+  read_file("hackathon/plan.md")
+  read_file("hackathon/tasks.json")
+  list_dir("hackathon/project/")
 
 Step 2 — Check existing code:
-  If workspace/hackathon/project/{COMPONENT}/ exists, read relevant files first.
+  If hackathon/project/{COMPONENT}/ exists, read relevant files first.
   Never overwrite working code — extend it.
 
 Step 3 — Implement:
-  Write to workspace/hackathon/project/{COMPONENT}/
+  Write to hackathon/project/{COMPONENT}/
   All code must:
   - Have type hints on all function signatures
   - Handle exceptions with meaningful error messages
@@ -40,11 +40,11 @@ Step 3 — Implement:
   - Include docstrings on public functions
 
 Step 4 — Verify imports:
-  exec("cd workspace/hackathon/project && python -c 'import {MODULE}; print(\"OK\")'")
+  exec("cd hackathon/project && python -c 'import {MODULE}; print(\"OK\")'")
   If import fails, fix the issue before proceeding.
 
 Step 5 — Run any existing tests:
-  exec("cd workspace/hackathon/project && python -m pytest tests/ -x -q 2>&1 | head -30")
+  exec("cd hackathon/project && python -m pytest tests/ -x -q 2>&1 | head -30")
   Fix any regressions before finishing.
 
 --- SPONSOR INTEGRATION PATTERNS ---
@@ -95,10 +95,10 @@ agent = game.Agent(
 ```
 
 --- OUTPUT STRUCTURE ---
-All files go to: workspace/hackathon/project/{COMPONENT}/
+All files go to: hackathon/project/{COMPONENT}/
 Keep each module focused: one responsibility per file.
 Always include: requirements.txt (or update existing), __init__.py
 ```
 
 ## Output Directory
-- `workspace/hackathon/project/{component}/`
+- `hackathon/project/{component}/`

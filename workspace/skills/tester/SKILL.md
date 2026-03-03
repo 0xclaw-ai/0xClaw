@@ -11,7 +11,7 @@ Validate the generated project: syntax, imports, unit tests, and sponsor API con
 Produce a structured report with actionable fix recommendations.
 
 ## When to Use
-After coder agents have finished implementing. Requires `workspace/hackathon/project/` to exist.
+After coder agents have finished implementing. Requires `hackathon/project/` to exist.
 
 ## Spawn Task Template
 
@@ -20,21 +20,21 @@ After coder agents have finished implementing. Requires `workspace/hackathon/pro
 Goal: Test the hackathon project and produce a quality report.
 
 Step 1 — Discovery:
-  list_dir("workspace/hackathon/project/")
+  list_dir("hackathon/project/")
   Read requirements.txt files found.
 
 Step 2 — Environment Setup:
-  exec("cd workspace/hackathon/project && pip install -r requirements.txt -q 2>&1 | tail -10")
+  exec("cd hackathon/project && pip install -r requirements.txt -q 2>&1 | tail -10")
 
 Step 3 — Syntax Check:
-  exec("cd workspace/hackathon/project && python -m py_compile $(find . -name '*.py' | head -50) 2>&1")
+  exec("cd hackathon/project && python -m py_compile $(find . -name '*.py' | head -50) 2>&1")
 
 Step 4 — Import Verification:
   For each Python module found, attempt: python -c 'import module; print("OK")'
   Report any import failures with specific error messages.
 
 Step 5 — Unit Tests:
-  exec("cd workspace/hackathon/project && python -m pytest tests/ -v --tb=short 2>&1")
+  exec("cd hackathon/project && python -m pytest tests/ -v --tb=short 2>&1")
   If no tests directory exists, note it as a gap.
 
 Step 6 — Sponsor API Smoke Tests:
@@ -42,7 +42,7 @@ Step 6 — Sponsor API Smoke Tests:
   Virtuals: Check VIRTUALS_API_KEY is set.
   Unibase: Check MEMBASE_ID and MEMBASE_ACCOUNT are set.
 
-Step 7 — Write report to workspace/hackathon/test_results.json:
+Step 7 — Write report to hackathon/test_results.json:
 {
   "status": "pass|fail|partial",
   "timestamp": "ISO datetime",
@@ -78,4 +78,4 @@ Step 7 — Write report to workspace/hackathon/test_results.json:
 ```
 
 ## Output File
-- `workspace/hackathon/test_results.json`
+- `hackathon/test_results.json`

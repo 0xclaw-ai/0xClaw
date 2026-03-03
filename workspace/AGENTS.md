@@ -2,8 +2,11 @@
 
 ## Full Hackathon Pipeline
 
-Trigger this pipeline when user says: "run hackathon", "start pipeline", "go",
-or provides a hackathon URL.
+Trigger this pipeline ONLY when user says: "run full pipeline", "run all phases", "start pipeline",
+"run complete hackathon pipeline", or "go" with no other phase qualifier.
+
+IMPORTANT: "run hackathon research", "run research", "phase 1", etc. trigger ONLY Phase 1.
+Do NOT run the full pipeline for single-phase commands.
 
 ## Skill Composition Model (Important)
 
@@ -35,7 +38,7 @@ Overlay skills:
 - Use `iterative-retrieval` before finalizing report fields.
 
 Output:
-- `workspace/hackathon/context.json`
+- `hackathon/context.json`
 
 ### Phase 2 — Ideation
 Trigger cues:
@@ -51,7 +54,7 @@ Overlay skills:
 - Optional `iterative-retrieval` if sponsor/API context is weak.
 
 Output:
-- `workspace/hackathon/ideas.json`
+- `hackathon/ideas.json`
 
 ### Phase 3 — Selection (Orchestrator)
 Trigger cues:
@@ -62,7 +65,7 @@ Trigger cues:
 
 Read `ideas.json`. Select the idea with the highest composite score.
 Confirm with user if score difference < 0.5.
-Write: `workspace/hackathon/selected_idea.json`
+Write: `hackathon/selected_idea.json`
 
 ### Phase 4 — Planning
 Trigger cues:
@@ -79,8 +82,8 @@ Overlay skills:
 - Use `eval-harness` to define acceptance criteria for each epic/task.
 
 Outputs:
-- `workspace/hackathon/plan.md`
-- `workspace/hackathon/tasks.json`
+- `hackathon/plan.md`
+- `hackathon/tasks.json`
 
 ### Phase 5 — Implementation
 Trigger cues:
@@ -91,7 +94,7 @@ Trigger cues:
 
 Read tasks.json. For each epic with priority "critical" or "high":
 - Use the `coder` skill to spawn one coder agent per epic (base skill)
-- Agents write to `workspace/hackathon/project/{component}/`
+- Agents write to `hackathon/project/{component}/`
 - Run epics in parallel where no dependencies exist
 - Apply `tdd-workflow` inside each coder execution.
 - Apply `coding-standards` before marking each task done.
@@ -110,7 +113,7 @@ Overlay skills:
 - Use `eval-harness` to run acceptance checks defined in Phase 4.
 
 Output:
-- `workspace/hackathon/test_results.json`
+- `hackathon/test_results.json`
 
 If status is "fail", spawn targeted fix agents using `coder` (+ `tdd-workflow`).
 
@@ -128,14 +131,14 @@ Overlay skills:
 - Apply `coding-standards` for consistent structure/tone/terminology.
 
 Outputs:
-- `workspace/hackathon/submission/README.md`
-- `workspace/hackathon/submission/SUBMISSION.md`
+- `hackathon/submission/README.md`
+- `hackathon/submission/SUBMISSION.md`
 
 ---
 
 ## State Convention
 
-All inter-agent data lives in `workspace/hackathon/`:
+All inter-agent data lives in `hackathon/`:
 
 | File | Written by | Read by |
 |------|-----------|---------|
@@ -194,6 +197,6 @@ If a sub-agent fails:
 
 ## Progress Tracking
 
-Use `workspace/hackathon/progress.md` as a running log:
+Use `hackathon/progress.md` as a running log:
 - Append a line when each phase completes: `[HH:MM] Phase X complete: <summary>`
 - Check this file to understand current state when resuming
