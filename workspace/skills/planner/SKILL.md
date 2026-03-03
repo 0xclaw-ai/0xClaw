@@ -11,7 +11,7 @@ Transform a selected project idea into a complete technical blueprint:
 system architecture, tech stack decisions, and a day-by-day implementation plan.
 
 ## When to Use
-After `workspace/hackathon/selected_idea.json` exists.
+After `hackathon/selected_idea.json` exists.
 
 ## Spawn Task Template
 
@@ -20,8 +20,8 @@ After `workspace/hackathon/selected_idea.json` exists.
 Goal: Create a complete technical plan for the selected hackathon project.
 
 Step 1 — Load inputs:
-  read_file("workspace/hackathon/selected_idea.json")
-  read_file("workspace/hackathon/context.json")
+  read_file("hackathon/selected_idea.json")
+  read_file("hackathon/context.json")
 
 Step 2 — Architecture Design:
   Define system components and their responsibilities.
@@ -60,9 +60,9 @@ Step 5 — 7-Day Timeline:
 
 Step 6 — Write outputs:
 
-  write_file("workspace/hackathon/plan.md", <full architecture + rationale in markdown>)
+  write_file("hackathon/plan.md", <full architecture + rationale in markdown>)
 
-  write_file("workspace/hackathon/tasks.json", <task structure>):
+  write_file("hackathon/tasks.json", <task structure>):
   {
     "project_name": "string",
     "architecture_summary": "2-3 sentences",
@@ -102,5 +102,5 @@ Step 6 — Write outputs:
 ```
 
 ## Output Files
-- `workspace/hackathon/plan.md` — human-readable architecture doc
-- `workspace/hackathon/tasks.json` — machine-readable task list
+- `hackathon/plan.md` — human-readable architecture doc
+- `hackathon/tasks.json` — machine-readable task list
