@@ -259,9 +259,19 @@ async def run_interactive(config: Config) -> None:
 
     _print_banner(config.agents.defaults.provider, config.agents.defaults.model)
 
+    # ── Signal Handling with Context Awareness ────────────────────────────────
+    is_task_running = False
+
     def _on_sigint(sig, frame):
-        console.print("\n[yellow]Goodbye! 🦀[/yellow]")
-        sys.exit(0)
+        if is_task_running:
+            # Interrupt the agent but stay in the CLI
+            agent.stop()
+            turn_done.set()
+            console.print("\n[yellow]⏹  Task interrupted (Ctrl+C). Returning to prompt.[/yellow]")
+        else:
+            # Normal exit if no task is active
+            console.print("\n[yellow]Goodbye! 🦀[/yellow]")
+            sys.exit(0)
 
     signal.signal(signal.SIGINT, _on_sigint)
 
@@ -294,7 +304,13 @@ async def run_interactive(config: Config) -> None:
 
     try:
         while True:
-            user_input = await session.prompt_async(HTML("<b fg='#5bc2e7'>❯</b> "))
+            try:
+                user_input = await session.prompt_async(HTML("<b fg='#5bc2e7'>❯</b> "))
+            except (KeyboardInterrupt, EOFError):
+                # This handles Ctrl+C when prompt_toolkit is active (idle state)
+                _on_sigint(None, None)
+                continue
+
             cmd = user_input.strip()
             if not cmd:
                 continue
@@ -316,6 +332,7 @@ async def run_interactive(config: Config) -> None:
                     continue
 
                 if lower == "/stop":
+                    agent.stop()
                     turn_done.set()
                     console.print("[yellow]⏹  Task cancelled.[/yellow]")
                     continue
@@ -324,6 +341,7 @@ async def run_interactive(config: Config) -> None:
                     console.print("[dim]Resetting session…[/dim]")
                     turn_done.clear()
                     turn_response.clear()
+                    is_task_running = True
                     await bus.publish_inbound(InboundMessage(
                         channel="cli", sender_id="user", chat_id="direct",
                         content=(
@@ -334,6 +352,7 @@ async def run_interactive(config: Config) -> None:
                     ))
                     with console.status("[dim]Resetting…[/dim]", spinner="dots"):
                         await turn_done.wait()
+                    is_task_running = False
                     if turn_response:
                         console.print(f"[green]✓[/green]  {turn_response[0].strip()}")
                     else:
@@ -356,6 +375,7 @@ async def run_interactive(config: Config) -> None:
             # ── send message to agent ──────────────────────────────────────────
             turn_done.clear()
             turn_response.clear()
+            is_task_running = True
 
             await bus.publish_inbound(InboundMessage(
                 channel="cli", sender_id="user", chat_id="direct", content=user_input,
@@ -363,6 +383,8 @@ async def run_interactive(config: Config) -> None:
 
             with console.status("[dim]0xClaw is thinking…[/dim]", spinner="dots"):
                 await turn_done.wait()
+
+            is_task_running = False
 
             if turn_response:
                 console.print()
