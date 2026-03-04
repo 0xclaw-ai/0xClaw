@@ -63,7 +63,7 @@ check_key() {
   fi
 }
 check_key "FLOCK_API_KEY"   "${FLOCK_API_KEY:-}"
-check_key "VENICE_API_KEY"  "${VENICE_API_KEY:-}"
+
 check_key "VIRTUALS_API_KEY" "${VIRTUALS_API_KEY:-}"
 check_key "MEMBASE_ID"      "${MEMBASE_ID:-}"
 

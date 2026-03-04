@@ -30,7 +30,7 @@ fi
 # Validate required keys
 MISSING=()
 [[ -z "${FLOCK_API_KEY:-}" ]] && MISSING+=("FLOCK_API_KEY")
-[[ -z "${VENICE_API_KEY:-}" ]] && MISSING+=("VENICE_API_KEY")
+
 
 if [[ ${#MISSING[@]} -gt 0 ]]; then
   echo ""
