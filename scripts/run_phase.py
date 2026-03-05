@@ -1,24 +1,15 @@
-"""Pipeline runner for 0xClaw hackathon agent.
-
-Runs a command in the 0xClaw agent and waits until an expected output file
-is produced. Decision phases (idea selection, etc.) are handled interactively
-— the user picks from numbered options in the terminal.
-
-Usage:
-    python scripts/run_phase.py "run hackathon research"
-    python scripts/run_phase.py "generate ideas"
-    python scripts/run_phase.py "select idea"          # interactive menu
-    python scripts/run_phase.py "plan the architecture"
-"""
+"""Pipeline runner for 0xClaw hackathon agent with orchestration contracts."""
 
 from __future__ import annotations
 
+import argparse
 import asyncio
 import json
 import os
 import re
 import sys
 import textwrap
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -30,30 +21,46 @@ from nanobot.agent.loop import AgentLoop
 from nanobot.bus.events import InboundMessage
 from nanobot.bus.queue import MessageBus
 from nanobot.config.schema import Config
-from nanobot.providers.litellm_provider import LiteLLMProvider
 from nanobot.providers.custom_provider import CustomProvider
+from nanobot.providers.litellm_provider import LiteLLMProvider
 from nanobot.session.manager import SessionManager
 from nanobot.utils.helpers import sync_workspace_templates
-
-from tools.virtuals_tool import VirtualsTool
+from orchestration.contracts import ArtifactMeta, Envelope, wrap_artifact
+from orchestration.model_profiles import MetricsLogger, ModelProfileResolver
+from orchestration.router import SkillRouter
+from orchestration.session_control import SessionControl
+from orchestration.state import OrchestratorStateMachine, PipelineStateStore
+from orchestration.write_guard import build_phase_write_guard, install_phase_write_guards
 from tools.unibase_tool import UnibaseTool
+from tools.virtuals_tool import VirtualsTool
 
 CONFIG_PATH = ROOT / "0xclaw" / "config" / "config.json"
+MODEL_PROFILES_PATH = ROOT / "0xclaw" / "config" / "model_profiles.json"
 WORKSPACE = ROOT / "workspace"
 HACKATHON_DIR = WORKSPACE / "hackathon"
+ENVELOPE_LOG = HACKATHON_DIR / "envelopes.jsonl"
+ARTIFACT_DIR = HACKATHON_DIR / "artifacts"
+METRICS_PATH = HACKATHON_DIR / "metrics.jsonl"
 
-# Map command keywords to the output file we wait for
-OUTPUT_FILE_MAP = {
+PHASE_OUTPUTS = {
     "research": HACKATHON_DIR / "context.json",
-    "idea":     HACKATHON_DIR / "ideas.json",
-    "plan":     HACKATHON_DIR / "plan.md",
-    "coder":    None,   # poll project/ dir instead
-    "test":     HACKATHON_DIR / "test_results.json",
-    "doc":      HACKATHON_DIR / "submission" / "README.md",
+    "idea": HACKATHON_DIR / "ideas.json",
+    "selection": HACKATHON_DIR / "selected_idea.json",
+    "planning": HACKATHON_DIR / "plan.md",
+    "coding": HACKATHON_DIR / "project",
+    "testing": HACKATHON_DIR / "test_results.json",
+    "doc": HACKATHON_DIR / "submission" / "README.md",
 }
 
-# Keywords that trigger interactive (human-in-the-loop) phases instead of agent runs
-INTERACTIVE_KEYWORDS = {"select", "pick", "choose"}
+PHASE_ARTIFACTS = {
+    "research": "context",
+    "idea": "ideas",
+    "selection": "selected_idea",
+    "planning": "plan",
+    "coding": "tasks",
+    "testing": "test_results",
+    "doc": "submission",
+}
 
 CONTINUATION_PROMPT = (
     "Please proceed with ONLY the current phase. Do not ask clarifying questions. "
@@ -61,72 +68,57 @@ CONTINUATION_PROMPT = (
     "Write the output file now."
 )
 
-MAX_TURNS = 20
+MAX_TURNS = 50
+IDLE_NUDGE_TIMEOUT_S = 30
 
-# ─────────────────────────────────────────────────────────────
-# Interactive selection handlers
-# ─────────────────────────────────────────────────────────────
 
 def _fmt_wrap(text: str, width: int = 56, indent: str = "      ") -> str:
-    """Wrap long text for terminal display."""
     return textwrap.fill(text, width=width, subsequent_indent=indent)
 
 
 def _select_idea_interactive() -> bool:
-    """Present ideas.json as a numbered menu and write selected_idea.json."""
     ideas_file = HACKATHON_DIR / "ideas.json"
     if not ideas_file.exists():
         print("[!] ideas.json not found. Run 'generate ideas' first.")
         return False
 
-    raw = json.loads(ideas_file.read_text())
-    # Support both list schema and {"ideas": [...]} schema
+    raw = json.loads(ideas_file.read_text(encoding="utf-8"))
     idea_list: list = raw if isinstance(raw, list) else raw.get("ideas", [])
 
     if not idea_list:
         print("[!] ideas.json is empty.")
         return False
 
-    # ── Display ──────────────────────────────────────────────
     print()
     print("╔" + "═" * 58 + "╗")
     print("║  🎯  SELECT YOUR PROJECT IDEA" + " " * 28 + "║")
     print("╠" + "═" * 58 + "╣")
 
     for i, idea in enumerate(idea_list, 1):
-        title    = idea.get("name") or idea.get("title", f"Idea {i}")
-        tagline  = idea.get("tagline") or idea.get("description", "")
-        problem  = idea.get("problem", "")
-        scores   = idea.get("scores", {})
+        title = idea.get("name") or idea.get("title", f"Idea {i}")
+        tagline = idea.get("tagline") or idea.get("description", "")
+        problem = idea.get("problem", "")
+        scores = idea.get("scores", {})
         composite = scores.get("composite")
-        sponsors = idea.get("sponsors") or list(
-            (idea.get("sponsor_integrations") or {}).keys()
-        )
+        sponsors = idea.get("sponsors") or list((idea.get("sponsor_integrations") or {}).keys())
 
-        print(f"║                                                          ║")
+        print("║                                                          ║")
         score_str = f"  [score: {composite:.2f}]" if composite else ""
-        header = f"  [{i}] {title}{score_str}"
-        print(f"║  {header:<56}║")
+        print(f"║  [{'{}] {}'.format(i, title) + score_str:<56}║")
 
         if tagline:
-            wrapped = _fmt_wrap(tagline, width=54, indent="       ")
-            for line in wrapped.splitlines():
+            for line in _fmt_wrap(tagline, width=54, indent="       ").splitlines():
                 print(f"║      {line:<52}║")
-
         if problem and problem != tagline:
-            wrapped = _fmt_wrap(f"Problem: {problem}", width=54, indent="               ")
-            for line in wrapped.splitlines():
+            for line in _fmt_wrap(f"Problem: {problem}", width=54, indent="               ").splitlines():
                 print(f"║      {line:<52}║")
-
         if sponsors:
-            sp_str = ", ".join(str(s) for s in sponsors[:4])
-            print(f"║      Sponsors: {sp_str:<42}║")
+            print(f"║      Sponsors: {', '.join(str(s) for s in sponsors[:4]):<42}║")
 
-    print(f"║                                                          ║")
-    print(f"║  [0] Enter a custom idea instead                         ║")
+    print("║                                                          ║")
+    print("║  [0] Enter a custom idea instead                         ║")
     print("╚" + "═" * 58 + "╝")
 
-    # ── Get choice ───────────────────────────────────────────
     selected: dict | None = None
     while selected is None:
         try:
@@ -137,7 +129,6 @@ def _select_idea_interactive() -> bool:
 
         if not raw_input:
             continue
-
         try:
             num = int(raw_input)
         except ValueError:
@@ -145,17 +136,14 @@ def _select_idea_interactive() -> bool:
             continue
 
         if num == 0:
-            # Custom idea path
-            print()
             try:
-                name    = input("  Project name        : ").strip()
+                name = input("  Project name        : ").strip()
                 tagline = input("  One-line tagline    : ").strip()
                 problem = input("  Problem it solves   : ").strip()
-                stack   = input("  Tech stack (brief)  : ").strip()
+                stack = input("  Tech stack (brief)  : ").strip()
             except (EOFError, KeyboardInterrupt):
                 print("\n  [cancelled]")
                 return False
-
             selected = {
                 "id": "custom",
                 "name": name,
@@ -170,40 +158,26 @@ def _select_idea_interactive() -> bool:
                 "source": "human_provided",
                 "selected_at": datetime.now(timezone.utc).isoformat(),
             }
-
         elif 1 <= num <= len(idea_list):
             idea = idea_list[num - 1]
-            selected = {**idea, "selected_by": "human",
-                        "selected_at": datetime.now(timezone.utc).isoformat()}
+            selected = {**idea, "selected_by": "human", "selected_at": datetime.now(timezone.utc).isoformat()}
         else:
             print(f"  Please enter a number between 0 and {len(idea_list)}.")
-            continue
 
-    # ── Write output ─────────────────────────────────────────
     out_file = HACKATHON_DIR / "selected_idea.json"
-    out_file.write_text(json.dumps(selected, indent=2, ensure_ascii=False))
-
-    name = selected.get("name") or selected.get("title", "?")
-    print()
-    print("╔" + "═" * 58 + "╗")
-    print(f"║  ✓  Selected: {name:<43}║")
-    print(f"║     Written → hackathon/selected_idea.json               ║")
-    print(f"║     Next    → python scripts/run_phase.py 'plan arch'    ║")
-    print("╚" + "═" * 58 + "╝")
-    print()
+    out_file.write_text(json.dumps(selected, indent=2, ensure_ascii=False), encoding="utf-8")
+    print("\n[✓] selected_idea.json written")
     return True
 
 
-# Map interactive keywords to their handler
 INTERACTIVE_HANDLERS = {
     "select": _select_idea_interactive,
-    "pick":   _select_idea_interactive,
+    "pick": _select_idea_interactive,
     "choose": _select_idea_interactive,
 }
 
 
 def _detect_interactive(command: str):
-    """Return interactive handler if command matches, else None."""
     cmd_lower = command.lower()
     for keyword, handler in INTERACTIVE_HANDLERS.items():
         if keyword in cmd_lower:
@@ -211,12 +185,8 @@ def _detect_interactive(command: str):
     return None
 
 
-# ─────────────────────────────────────────────────────────────
-# Agent runner (LLM phases)
-# ─────────────────────────────────────────────────────────────
-
 def _load_config() -> Config:
-    raw = CONFIG_PATH.read_text()
+    raw = CONFIG_PATH.read_text(encoding="utf-8")
 
     def _sub(m: re.Match) -> str:
         return os.environ.get(m.group(1), "")
@@ -247,26 +217,151 @@ def _make_provider(config: Config):
     )
 
 
-def _detect_output_file(command: str) -> Path | None:
-    cmd_lower = command.lower()
-    for keyword, path in OUTPUT_FILE_MAP.items():
-        if keyword in cmd_lower:
-            return path
-    return None
-
-
 def _output_exists(path: Path | None) -> bool:
     if path is None:
         return False
+    if path.is_dir():
+        return any(path.rglob("*"))
     return path.exists() and path.stat().st_size > 10
 
 
-async def run(command: str, timeout_per_turn: int = 240, max_turns: int = MAX_TURNS) -> None:
+def _is_intent_only_response(response: str) -> bool:
+    text = response.lower()
+    intent_markers = ("state intent", "i will now execute", "i will begin")
+    # Only treat concrete runtime signals as "action happened".
+    # Avoid broad phrases like "written to" because "will be written to" is still intent-only.
+    action_markers = (
+        "has been spawned",
+        "started (id:",
+        "[subagent",
+        "completed successfully",
+        "phase 1 — research complete",
+        "phase 2 — ideation is complete",
+        "phase 4 — planning is complete",
+    )
+    return any(marker in text for marker in intent_markers) and not any(marker in text for marker in action_markers)
+
+
+def _fallback_classifier(text: str) -> str | None:
+    if "plan" in text or "规划" in text:
+        return "planning"
+    if "test" in text or "测试" in text:
+        return "testing"
+    if "doc" in text or "文档" in text:
+        return "doc"
+    if "code" in text or "实现" in text:
+        return "coding"
+    return None
+
+
+def _append_envelope(envelope: Envelope) -> None:
+    ENVELOPE_LOG.parent.mkdir(parents=True, exist_ok=True)
+    with ENVELOPE_LOG.open("a", encoding="utf-8") as f:
+        f.write(json.dumps(envelope.to_dict(), ensure_ascii=False) + "\n")
+
+
+def _response_to_envelope(
+    response: str,
+    *,
+    trace_id: str,
+    session_id: str,
+    phase: str,
+    agent_id: str,
+    output_ready: bool = False,
+) -> Envelope:
+    try:
+        payload = json.loads(response)
+        if isinstance(payload, dict):
+            data = {"raw_response": payload}
+        else:
+            data = {"raw_response": response}
+        kind = "result"
+    except Exception:
+        if output_ready:
+            data = {"raw_response": response, "format": "text"}
+            kind = "result"
+        else:
+            data = {"raw_response": response, "error": "non_json_response"}
+            kind = "error"
+    return Envelope(
+        trace_id=trace_id,
+        session_id=session_id,
+        phase=phase,
+        agent_id=agent_id,
+        type=kind,
+        payload=data,
+    )
+
+
+def _write_artifact_bundle(phase: str, output_path: Path) -> None:
+    artifact_type = PHASE_ARTIFACTS[phase]
+    meta = ArtifactMeta(
+        artifact=artifact_type,
+        version="v1",
+        producer="orchestrator",
+        schema_version="1.0.0",
+    )
+
+    if output_path.exists() and output_path.is_file() and output_path.suffix == ".json":
+        try:
+            data = json.loads(output_path.read_text(encoding="utf-8"))
+        except Exception:
+            data = {"raw": output_path.read_text(encoding="utf-8")}
+    else:
+        data = {"path": str(output_path), "exists": output_path.exists()}
+
+    payload = wrap_artifact(meta=meta, data=data)
+    ARTIFACT_DIR.mkdir(parents=True, exist_ok=True)
+    (ARTIFACT_DIR / f"{artifact_type}.json").write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+
+
+async def run(command: str, timeout_per_turn: int = 240, max_turns: int = MAX_TURNS, resume: bool = False) -> int:
     from dotenv import load_dotenv
+
     load_dotenv(ROOT / ".env")
+    sync_workspace_templates(WORKSPACE)
 
     config = _load_config()
-    sync_workspace_templates(WORKSPACE)
+    state_store = PipelineStateStore(HACKATHON_DIR)
+    state_machine = OrchestratorStateMachine(WORKSPACE, state_store)
+    session_control = SessionControl(state_store)
+    router = SkillRouter(fallback_classifier=_fallback_classifier)
+    profiles = ModelProfileResolver(MODEL_PROFILES_PATH)
+    metrics = MetricsLogger(METRICS_PATH)
+
+    if resume:
+        decision = session_control.get_resume_decision()
+        if not decision.command:
+            print(f"[resume] {decision.reason}")
+            return 0
+        print(f"[resume] {decision.reason}")
+        command = decision.command
+
+    route = router.route(command)
+    if not route.phase:
+        print(f"[router] Unable to route command: {route.reason}")
+        return 1
+
+    phase = route.phase
+
+    check = state_machine.validate_phase_entry(phase)
+    if not check.ok:
+        print("[state] Cannot start phase due to:")
+        for err in check.errors:
+            print(f"  - {err}")
+        return 1
+
+    profile = profiles.resolve(phase)
+    if profile is not None:
+        config.agents.defaults.model = profile.model
+        config.agents.defaults.provider = profile.provider
+        config.agents.defaults.max_tokens = profile.max_tokens
+        config.agents.defaults.temperature = profile.temperature
+        timeout_per_turn = profile.timeout_s
+
+    output_file = PHASE_OUTPUTS.get(phase)
+    trace_id = f"phase-{int(time.time())}-{phase}"
+    state_machine.checkpoint(phase, "running", active_task=trace_id)
 
     bus = MessageBus()
     provider = _make_provider(config)
@@ -286,14 +381,36 @@ async def run(command: str, timeout_per_turn: int = 240, max_turns: int = MAX_TU
     )
     agent.tools.register(VirtualsTool())
     agent.tools.register(UnibaseTool())
+    write_guard = build_phase_write_guard(
+        workspace=WORKSPACE,
+        state_machine=state_machine,
+        get_phase=lambda: phase,
+    )
+    install_phase_write_guards(agent.tools, write_guard)
+    agent.subagents.set_write_guard(write_guard)
 
-    output_file = _detect_output_file(command)
+    envelope = Envelope.from_command(
+        session_id="cli:direct",
+        phase=phase,
+        agent_id="orchestrator",
+        trace_id=trace_id,
+        payload={"user_command": command, "phase": phase},
+    )
+    _append_envelope(envelope)
 
-    print(f"\n{'='*60}")
+    llm_message = (
+        "You are executing a single pipeline phase. "
+        "Consume the envelope below and complete only that phase.\n\n"
+        f"{json.dumps(envelope.to_dict(), ensure_ascii=False)}"
+    )
+
+    print(f"\n{'='*70}")
     print(f"Command  : {command}")
+    print(f"Phase    : {phase} ({route.source}, confidence={route.confidence:.2f})")
     print(f"Provider : {config.agents.defaults.provider} | {config.agents.defaults.model}")
     print(f"Watching : {output_file or 'n/a'}")
-    print(f"{'='*60}\n")
+    print(f"Trace ID : {trace_id}")
+    print(f"{'='*70}\n")
 
     bus_task = asyncio.create_task(agent.run())
 
@@ -313,92 +430,132 @@ async def run(command: str, timeout_per_turn: int = 240, max_turns: int = MAX_TU
                 return None
 
     async def send(text: str) -> None:
-        await bus.publish_inbound(InboundMessage(
-            channel="cli", sender_id="user", chat_id="direct", content=text,
-        ))
+        await bus.publish_inbound(InboundMessage(channel="cli", sender_id="user", chat_id="direct", content=text))
 
     success = False
     nudge_count = 0
+    auto_nudge_pending = False
+    started_at = time.time()
+
     try:
-        await send(command)
+        await send(llm_message)
 
         for turn in range(1, max_turns + 1):
             print(f"[turn {turn}/{max_turns}] waiting for agent response...")
-            response = await next_response(timeout=timeout_per_turn)
+            turn_timeout = IDLE_NUDGE_TIMEOUT_S if auto_nudge_pending else timeout_per_turn
+            response = await next_response(timeout=turn_timeout)
 
             if response is None:
-                print(f"[timeout] No response in {timeout_per_turn}s")
+                if auto_nudge_pending and nudge_count < 1:
+                    print(f"[idle] No activity in {IDLE_NUDGE_TIMEOUT_S}s — sending continuation prompt")
+                    await send(CONTINUATION_PROMPT)
+                    nudge_count += 1
+                    auto_nudge_pending = False
+                    continue
+                print(f"[timeout] No response in {turn_timeout}s")
                 break
 
-            print(f"\n{'─'*60}")
-            print(f"[agent turn {turn}]\n{response}")
-            print(f"{'─'*60}\n")
+            auto_nudge_pending = False
+            print(f"\n{'─'*60}\n[agent turn {turn}]\n{response}\n{'─'*60}\n")
+            output_ready = _output_exists(output_file)
+            resp_envelope = _response_to_envelope(
+                response,
+                trace_id=trace_id,
+                session_id="cli:direct",
+                phase=phase,
+                agent_id="orchestrator",
+                output_ready=output_ready,
+            )
+            _append_envelope(resp_envelope)
 
             await asyncio.sleep(1)
-            if _output_exists(output_file):
+            if output_ready or _output_exists(output_file):
                 print(f"[✓] Output file created: {output_file}")
                 success = True
                 break
 
-            nudge_triggers = ["would you like", "shall i", "do you want", "should i",
-                              "clarif", "which option", "please confirm"]
+            if turn == 1 and _is_intent_only_response(response):
+                auto_nudge_pending = True
+                print(f"[idle] Intent-only response detected — waiting {IDLE_NUDGE_TIMEOUT_S}s for activity")
+
+            nudge_triggers = ["would you like", "shall i", "do you want", "should i", "clarif", "which option", "please confirm"]
             if nudge_count < 1 and any(t in response.lower() for t in nudge_triggers):
                 print("[nudge] Agent asked a question — sending continuation prompt")
                 await send(CONTINUATION_PROMPT)
                 nudge_count += 1
 
+    except KeyboardInterrupt:
+        state_machine.checkpoint(phase, "cancelled", last_error="Cancelled by Ctrl+C")
+        metrics.log({
+            "phase": phase,
+            "model": config.agents.defaults.model,
+            "duration_s": round(time.time() - started_at, 2),
+            "fallback": False,
+            "status": "cancelled",
+        })
+        print("\n[cancelled] Task cancelled by Ctrl+C. Session is preserved.")
+        return 130
     finally:
         agent.stop()
         await asyncio.gather(bus_task, return_exceptions=True)
         await agent.close_mcp()
 
-    print(f"\n{'='*60}")
-    if success and output_file:
-        size = output_file.stat().st_size
-        print(f"[✓] SUCCESS — {output_file.name} ({size} bytes)")
-        if output_file.suffix == ".json":
-            try:
-                data = json.loads(output_file.read_text())
-                if isinstance(data, dict):
-                    print(f"[preview] keys: {list(data.keys())}")
-            except Exception:
-                pass
-    elif output_file and not _output_exists(output_file):
-        print(f"[✗] INCOMPLETE — {output_file} not created after {max_turns} turns")
+    elapsed = round(time.time() - started_at, 2)
+    if success:
+        state_machine.checkpoint(phase, "done")
+        if output_file is not None:
+            _write_artifact_bundle(phase, output_file)
     else:
-        print("[done] Run complete.")
+        state_machine.checkpoint(phase, "failed", last_error=f"No output after {max_turns} turns")
+
+    metrics.log(
+        {
+            "phase": phase,
+            "model": config.agents.defaults.model,
+            "duration_s": elapsed,
+            "fallback": False,
+            "status": "done" if success else "failed",
+        }
+    )
+
+    print(f"\n{'='*60}")
+    if success:
+        print(f"[✓] SUCCESS — phase {phase} completed")
+    else:
+        print(f"[✗] INCOMPLETE — phase {phase} did not produce expected output")
     print(f"{'='*60}\n")
+    return 0 if success else 1
 
 
-# ─────────────────────────────────────────────────────────────
-# Entry point
-# ─────────────────────────────────────────────────────────────
-
-if __name__ == "__main__":
-    if len(sys.argv) < 2:
-        print("Usage: python scripts/run_phase.py '<command>'")
-        print()
-        print("LLM phases:")
-        print("  python scripts/run_phase.py 'run hackathon research'")
-        print("  python scripts/run_phase.py 'generate ideas'")
-        print("  python scripts/run_phase.py 'plan architecture'")
-        print("  python scripts/run_phase.py 'start coding'")
-        print("  python scripts/run_phase.py 'run tests'")
-        print("  python scripts/run_phase.py 'prepare docs'")
-        print()
-        print("Interactive phases (human picks from menu):")
-        print("  python scripts/run_phase.py 'select idea'")
-        sys.exit(1)
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Run one 0xClaw pipeline phase")
+    parser.add_argument("command", nargs="*", help="Natural language phase command")
+    parser.add_argument("--resume", action="store_true", help="Resume from pipeline_state checkpoint")
+    args = parser.parse_args()
 
     from dotenv import load_dotenv
+
     load_dotenv(ROOT / ".env")
 
-    command = " ".join(sys.argv[1:])
+    state_store = PipelineStateStore(HACKATHON_DIR)
 
-    # Check for interactive phases first — no LLM needed
-    handler = _detect_interactive(command)
+    if not args.command and not args.resume:
+        print("Usage: python scripts/run_phase.py '<command>' [--resume]")
+        return 1
+
+    command = " ".join(args.command).strip() if args.command else ""
+
+    handler = _detect_interactive(command) if command else None
     if handler is not None:
         ok = handler()
-        sys.exit(0 if ok else 1)
+        if ok:
+            state_store.set_phase_status("selection", "done")
+        else:
+            state_store.set_phase_status("selection", "cancelled", last_error="Interactive selection cancelled")
+        return 0 if ok else 1
 
-    asyncio.run(run(command))
+    return asyncio.run(run(command, resume=args.resume))
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
