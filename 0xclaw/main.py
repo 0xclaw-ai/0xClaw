@@ -6,7 +6,10 @@ import json
 import os
 import re
 import signal
+import shutil
 import sys
+import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 from loguru import logger
@@ -31,13 +34,54 @@ from nanobot.providers.custom_provider import CustomProvider
 from nanobot.session.manager import SessionManager
 
 sys.path.insert(0, str(Path(__file__).parent))
+from orchestration.contracts import Envelope
+from orchestration.model_profiles import ModelProfileResolver
+from orchestration.router import SkillRouter
+from orchestration.session_control import SessionControl
+from orchestration.state import OrchestratorStateMachine, PipelineStateStore
+from orchestration.write_guard import build_phase_write_guard, install_phase_write_guards
 from tools.virtuals_tool import VirtualsTool
 from tools.unibase_tool import UnibaseTool
 
 # ── globals ────────────────────────────────────────────────────────────────────
 console = Console()
 CONFIG_PATH = ROOT / "0xclaw" / "config" / "config.json"
+MODEL_PROFILES_PATH = ROOT / "0xclaw" / "config" / "model_profiles.json"
 WORKSPACE = ROOT / "workspace"
+HACKATHON_DIR = WORKSPACE / "hackathon"
+ENVELOPE_LOG = HACKATHON_DIR / "envelopes.jsonl"
+
+PHASE_OUTPUTS: dict[str, Path] = {
+    "research": HACKATHON_DIR / "context.json",
+    "idea": HACKATHON_DIR / "ideas.json",
+    "selection": HACKATHON_DIR / "selected_idea.json",
+    "planning": HACKATHON_DIR / "plan.md",
+    "coding": HACKATHON_DIR / "project",
+    "testing": HACKATHON_DIR / "test_results.json",
+    "doc": HACKATHON_DIR / "submission" / "README.md",
+}
+DEFAULT_PHASE_TIMEOUT_S = 240
+HACKATHON_RUNTIME_PATHS = (
+    "context.json",
+    "ideas.json",
+    "selected_idea.json",
+    "plan.md",
+    "tasks.json",
+    "test_results.json",
+    "progress.md",
+    "pipeline_state.json",
+    "metrics.jsonl",
+    "envelopes.jsonl",
+    "research_summary.md",
+    "research",
+    "artifacts",
+    "project",
+    "submission",
+)
+WORKSPACE_RUNTIME_PATHS = (
+    "research",
+    "hackathon-research.md",
+)
 
 # ── ASCII art (each line measured to 53 display columns) ──────────────────────
 LOGO_LINES = [
@@ -53,6 +97,8 @@ LOGO_LINES = [
 SLASH_COMMANDS: dict[str, str] = {
     "/help":   "Show all available commands",
     "/new":    "Start a fresh conversation",
+    "/reset":  "Alias for /new",
+    "/resume": "Resume from the latest pipeline checkpoint",
     "/stop":   "Cancel the current running task",
     "/status": "Show provider and model information",
     "/exit":   "Exit 0xClaw",
@@ -173,6 +219,65 @@ def _show_status(config: Config) -> None:
     )
 
 
+def _output_exists(path: Path | None) -> bool:
+    if path is None:
+        return False
+    if path.is_dir():
+        return any(path.rglob("*"))
+    return path.exists() and path.stat().st_size > 10
+
+
+def _fallback_classifier(text: str) -> str | None:
+    t = text.lower()
+    if "plan" in t or "规划" in t:
+        return "planning"
+    if "test" in t or "测试" in t:
+        return "testing"
+    if "doc" in t or "文档" in t:
+        return "doc"
+    if "code" in t or "实现" in t:
+        return "coding"
+    return None
+
+
+def _append_envelope(envelope: Envelope) -> None:
+    ENVELOPE_LOG.parent.mkdir(parents=True, exist_ok=True)
+    with ENVELOPE_LOG.open("a", encoding="utf-8") as f:
+        f.write(json.dumps(envelope.to_dict(), ensure_ascii=False) + "\n")
+
+
+def _is_spawn_started_message(text: str) -> bool:
+    t = text.strip()
+    return t.startswith("Subagent [") and " started (id: " in t
+
+
+def _reset_hackathon_outputs() -> list[str]:
+    HACKATHON_DIR.mkdir(parents=True, exist_ok=True)
+    removed: list[str] = []
+    for rel in HACKATHON_RUNTIME_PATHS:
+        p = HACKATHON_DIR / rel
+        if p.is_dir():
+            shutil.rmtree(p, ignore_errors=True)
+            removed.append(rel + "/")
+        elif p.exists():
+            p.unlink()
+            removed.append(rel)
+    return removed
+
+
+def _reset_workspace_runtime_outputs() -> list[str]:
+    removed: list[str] = []
+    for rel in WORKSPACE_RUNTIME_PATHS:
+        p = WORKSPACE / rel
+        if p.is_dir():
+            shutil.rmtree(p, ignore_errors=True)
+            removed.append(f"workspace/{rel}/")
+        elif p.exists():
+            p.unlink()
+            removed.append(f"workspace/{rel}")
+    return removed
+
+
 # ── main interactive loop ──────────────────────────────────────────────────────
 async def run_interactive(config: Config) -> None:
     from prompt_toolkit import PromptSession
@@ -219,15 +324,22 @@ async def run_interactive(config: Config) -> None:
         "scrollbar.button":                        "bg:#1e3a5f",
     })
 
+    active_phase: str | None = None
+    active_trace_id: str | None = None
+
     # ── agent setup ────────────────────────────────────────────────────────────
     bus = MessageBus()
     provider = _make_provider(config)
     session_manager = SessionManager(WORKSPACE)
+    state_store = PipelineStateStore(HACKATHON_DIR)
+    state_machine = OrchestratorStateMachine(WORKSPACE, state_store)
+    session_control = SessionControl(state_store)
+    router = SkillRouter(fallback_classifier=_fallback_classifier)
+    profile_resolver = ModelProfileResolver(MODEL_PROFILES_PATH)
 
     cron_path = WORKSPACE / ".cron" / "jobs.json"
     cron_path.parent.mkdir(parents=True, exist_ok=True)
     cron = CronService(cron_path)
-
     agent = AgentLoop(
         bus=bus,
         provider=provider,
@@ -244,6 +356,13 @@ async def run_interactive(config: Config) -> None:
     )
     agent.tools.register(VirtualsTool())
     agent.tools.register(UnibaseTool())
+    write_guard = build_phase_write_guard(
+        workspace=WORKSPACE,
+        state_machine=state_machine,
+        get_phase=lambda: active_phase,
+    )
+    install_phase_write_guards(agent.tools, write_guard)
+    agent.subagents.set_write_guard(write_guard)
 
     history_path = WORKSPACE / ".history" / "cli_history"
     history_path.parent.mkdir(parents=True, exist_ok=True)
@@ -279,7 +398,16 @@ async def run_interactive(config: Config) -> None:
                 elif not turn_done.is_set():
                     if msg.content:
                         turn_response.append(msg.content)
-                    turn_done.set()
+                    if active_phase:
+                        output = PHASE_OUTPUTS.get(active_phase)
+                        if _output_exists(output):
+                            turn_done.set()
+                        elif msg.content and _is_spawn_started_message(msg.content):
+                            console.print(f"  [dim]↳ {msg.content}[/dim]")
+                        elif output is None:
+                            turn_done.set()
+                    else:
+                        turn_done.set()
                 elif msg.content:
                     console.print()
                     console.print("[bold cyan]🦀  0xClaw[/bold cyan]")
@@ -291,6 +419,20 @@ async def run_interactive(config: Config) -> None:
                 break
 
     consume_task = asyncio.create_task(_consume())
+
+    async def _send_and_wait(text: str, *, timeout_s: int = DEFAULT_PHASE_TIMEOUT_S) -> str:
+        turn_done.clear()
+        turn_response.clear()
+        await bus.publish_inbound(InboundMessage(
+            channel="cli", sender_id="user", chat_id="direct", content=text,
+        ))
+        try:
+            with console.status("[dim]0xClaw is thinking…[/dim]", spinner="dots"):
+                await asyncio.wait_for(turn_done.wait(), timeout=timeout_s)
+        except asyncio.TimeoutError:
+            turn_done.set()
+            console.print(f"[yellow]Timed out after {timeout_s}s.[/yellow]")
+        return turn_response[0] if turn_response else ""
 
     try:
         while True:
@@ -316,29 +458,89 @@ async def run_interactive(config: Config) -> None:
                     continue
 
                 if lower == "/stop":
-                    turn_done.set()
-                    console.print("[yellow]⏹  Task cancelled.[/yellow]")
+                    response = await _send_and_wait("/stop", timeout_s=30)
+                    if active_phase:
+                        state_machine.checkpoint(active_phase, "cancelled", last_error="Cancelled by /stop")
+                        active_phase = None
+                        active_trace_id = None
+                    if response:
+                        console.print(f"[yellow]{response.strip()}[/yellow]")
+                    else:
+                        console.print("[yellow]⏹  Stop signal sent.[/yellow]")
                     continue
 
-                if lower == "/new":
+                if lower in {"/new", "/reset"}:
                     console.print("[dim]Resetting session…[/dim]")
-                    turn_done.clear()
-                    turn_response.clear()
-                    await bus.publish_inbound(InboundMessage(
-                        channel="cli", sender_id="user", chat_id="direct",
-                        content=(
-                            "[SYSTEM] Start a completely fresh conversation. "
-                            "Clear all previous context. "
-                            "Acknowledge with a single short line."
-                        ),
-                    ))
-                    with console.status("[dim]Resetting…[/dim]", spinner="dots"):
-                        await turn_done.wait()
-                    if turn_response:
-                        console.print(f"[green]✓[/green]  {turn_response[0].strip()}")
+                    response = await _send_and_wait("/new", timeout_s=30)
+                    removed = _reset_hackathon_outputs() + _reset_workspace_runtime_outputs()
+                    active_phase = None
+                    active_trace_id = None
+                    if response:
+                        console.print(f"[green]✓[/green]  {response.strip()}")
                     else:
                         console.print("[green]✓  Fresh session ready.[/green]")
+                    if removed:
+                        console.print(f"[dim]Cleared hackathon outputs:[/dim] {len(removed)} item(s)")
                     console.print()
+                    continue
+
+                if lower == "/resume":
+                    decision = session_control.get_resume_decision()
+                    if not decision.command:
+                        console.print(f"[green]✓[/green] {decision.reason}")
+                        continue
+                    console.print(f"[dim]{decision.reason}[/dim]")
+                    cmd = decision.command
+                    route = router.route(cmd)
+                    if not route.phase:
+                        console.print(f"[red]Resume route failed:[/red] {route.reason}")
+                        continue
+                    check = state_machine.validate_phase_entry(route.phase)
+                    if not check.ok:
+                        console.print("[red]Cannot resume phase:[/red]")
+                        for err in check.errors:
+                            console.print(f"  - {err}")
+                        continue
+                    profile = profile_resolver.resolve(route.phase)
+                    if profile:
+                        console.print(
+                            f"[dim]Profile[/dim] {profile.provider}/{profile.model} "
+                            f"[dim](timeout {profile.timeout_s}s)[/dim]"
+                        )
+                    active_phase = route.phase
+                    active_trace_id = f"cli-{int(time.time())}-{route.phase}"
+                    state_machine.checkpoint(route.phase, "running", active_task=active_trace_id)
+                    envelope = Envelope.from_command(
+                        session_id="cli:direct",
+                        phase=route.phase,
+                        agent_id="orchestrator",
+                        trace_id=active_trace_id,
+                        payload={"user_command": cmd, "phase": route.phase},
+                    )
+                    _append_envelope(envelope)
+                    message = (
+                        "You are executing a single pipeline phase. "
+                        "Consume the envelope below and complete only that phase.\n"
+                        "IMPORTANT: call spawn at most once for this phase. "
+                        "If a spawned task is running, wait for its system result and do not spawn duplicates.\n\n"
+                        + json.dumps(envelope.to_dict(), ensure_ascii=False)
+                    )
+                    timeout_s = profile.timeout_s if profile else DEFAULT_PHASE_TIMEOUT_S
+                    response = await _send_and_wait(message, timeout_s=timeout_s)
+                    output = PHASE_OUTPUTS.get(route.phase)
+                    if _output_exists(output):
+                        state_machine.checkpoint(route.phase, "done")
+                        active_phase = None
+                        active_trace_id = None
+                    elif active_phase:
+                        state_machine.checkpoint(route.phase, "failed", last_error="No expected output detected")
+                        active_phase = None
+                        active_trace_id = None
+                    if response:
+                        console.print()
+                        console.print("[bold cyan]🦀  0xClaw[/bold cyan]")
+                        console.print(Markdown(response))
+                        console.print()
                     continue
 
                 # unknown slash command — show hint
@@ -353,21 +555,62 @@ async def run_interactive(config: Config) -> None:
                 console.print("[yellow]Goodbye! 🦀[/yellow]")
                 break
 
-            # ── send message to agent ──────────────────────────────────────────
-            turn_done.clear()
-            turn_response.clear()
+            # ── route + state gate for normal inputs ───────────────────────────
+            route = router.route(user_input)
+            if route.phase:
+                check = state_machine.validate_phase_entry(route.phase)
+                if not check.ok:
+                    console.print("[red]Phase blocked by state gate:[/red]")
+                    for err in check.errors:
+                        console.print(f"  - {err}")
+                    continue
 
-            await bus.publish_inbound(InboundMessage(
-                channel="cli", sender_id="user", chat_id="direct", content=user_input,
-            ))
+                profile = profile_resolver.resolve(route.phase)
+                if profile:
+                    console.print(
+                        f"[dim]Phase[/dim] {route.phase} [dim]via {route.source} "
+                        f"(confidence {route.confidence:.2f})[/dim]"
+                    )
+                    console.print(
+                        f"[dim]Profile[/dim] {profile.provider}/{profile.model} "
+                        f"[dim](timeout {profile.timeout_s}s)[/dim]"
+                    )
 
-            with console.status("[dim]0xClaw is thinking…[/dim]", spinner="dots"):
-                await turn_done.wait()
+                active_phase = route.phase
+                active_trace_id = f"cli-{int(time.time())}-{route.phase}"
+                state_machine.checkpoint(route.phase, "running", active_task=active_trace_id)
 
-            if turn_response:
+                envelope = Envelope.from_command(
+                    session_id="cli:direct",
+                    phase=route.phase,
+                    agent_id="orchestrator",
+                    trace_id=active_trace_id,
+                    payload={"user_command": user_input, "phase": route.phase},
+                )
+                _append_envelope(envelope)
+                routed_input = (
+                    "You are executing a single pipeline phase. "
+                    "Consume the envelope below and complete only that phase.\n"
+                    "IMPORTANT: call spawn at most once for this phase. "
+                    "If a spawned task is running, wait for its system result and do not spawn duplicates.\n\n"
+                    + json.dumps(envelope.to_dict(), ensure_ascii=False)
+                )
+                timeout_s = profile.timeout_s if profile else DEFAULT_PHASE_TIMEOUT_S
+                response = await _send_and_wait(routed_input, timeout_s=timeout_s)
+                output = PHASE_OUTPUTS.get(route.phase)
+                if _output_exists(output):
+                    state_machine.checkpoint(route.phase, "done")
+                else:
+                    state_machine.checkpoint(route.phase, "failed", last_error="No expected output detected")
+                active_phase = None
+                active_trace_id = None
+            else:
+                response = await _send_and_wait(user_input)
+
+            if response:
                 console.print()
                 console.print("[bold cyan]🦀  0xClaw[/bold cyan]")
-                console.print(Markdown(turn_response[0]))
+                console.print(Markdown(response))
                 console.print()
 
     finally:
