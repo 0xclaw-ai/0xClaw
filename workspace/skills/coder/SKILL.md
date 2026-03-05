@@ -7,49 +7,69 @@ metadata: {"nanobot": {"always": false}}
 # Coder Agent Skill
 
 ## Purpose
-Implement a specific task from the project plan. Write complete, runnable, tested code.
+Implement tasks from the project plan. Write complete, runnable, tested code.
 No stubs. No TODOs. No placeholders.
 
 ## When to Use
-When orchestrator assigns a specific epic or task from `hackathon/tasks.json`.
+When orchestrator assigns implementation from `hackathon/tasks.json`.
 
-## Spawn Task Template
+## CRITICAL: Execute Directly — DO NOT use spawn()
 
-Replace `{EPIC_ID}`, `{TASK_DESCRIPTION}`, and `{COMPONENT}` before spawning.
+**Do NOT call spawn() for this task.**
+Spawn creates sub-agents that outlive the agent loop and bleed into subsequent phases, causing concurrent writes and corrupted state. Execute every step yourself in this conversation.
 
+Also: DO NOT call web_search — it is not configured.
+
+---
+
+## Direct Execution Steps
+
+**Step 1** — Load context (read all three at once):
 ```
-[CODER AGENT — {EPIC_ID}]
-Goal: Implement {TASK_DESCRIPTION}
+read_file("hackathon/selected_idea.json")
+read_file("hackathon/plan.md")
+read_file("hackathon/tasks.json")
+list_dir("hackathon/project/")
+```
 
-Step 1 — Load context:
-  read_file("hackathon/selected_idea.json")
-  read_file("hackathon/plan.md")
-  read_file("hackathon/tasks.json")
-  list_dir("hackathon/project/")
+**Step 2** — Implement tasks from `tasks.json` sequentially:
 
-Step 2 — Check existing code:
-  If hackathon/project/{COMPONENT}/ exists, read relevant files first.
-  Never overwrite working code — extend it.
+For each epic/task in order:
+- Check if the target file already exists: `list_dir("hackathon/project/{component}/")`
+- If it exists, read it first — **never overwrite working code, extend it**
+- Write the implementation to `hackathon/project/{component}/`
 
-Step 3 — Implement:
-  Write to hackathon/project/{COMPONENT}/
-  All code must:
-  - Have type hints on all function signatures
-  - Handle exceptions with meaningful error messages
-  - Use async/await for all I/O operations
-  - Include docstrings on public functions
+All code must:
+- Have type hints on all function signatures
+- Handle exceptions with meaningful error messages
+- Use async/await for all I/O operations
+- Include docstrings on public functions
 
-Step 4 — Verify imports:
-  exec("cd hackathon/project && python -c 'import {MODULE}; print(\"OK\")'")
-  If import fails, fix the issue before proceeding.
+**Step 3** — After writing each component, verify the import:
+```
+exec("cd hackathon/project && python -c 'import {module}; print(\"OK\")'")
+```
+If import fails, fix the issue immediately before writing the next file.
 
-Step 5 — Run any existing tests:
-  exec("cd hackathon/project && python -m pytest tests/ -x -q 2>&1 | head -30")
-  Fix any regressions before finishing.
+**Step 4** — Write `hackathon/project/requirements.txt` consolidating all dependencies.
+  - Plain package==version lines only — no comments, no docstrings, no blank section headers
+  - Do NOT include Python stdlib modules (asyncio, hashlib, hmac, uuid, datetime, etc.) — they are built-in
+  - Do NOT run `pip install` — the tester phase handles installation
 
---- SPONSOR INTEGRATION PATTERNS ---
+**Step 5** — Write `hackathon/project/main.py` as the project entry point.
 
-## FLock.io (use as PRIMARY inference)
+**Step 6** — Run any existing tests:
+```
+exec("cd hackathon/project && python -m pytest tests/ -x -q 2>&1 | head -30")
+```
+
+When all files are written, simply stop. Do NOT call message() to report status — that triggers an idle turn that times out.
+
+---
+
+## Sponsor Integration Patterns
+
+### FLock.io (PRIMARY inference — always use this)
 ```python
 import os
 from openai import AsyncOpenAI
@@ -65,7 +85,6 @@ async def flock_complete(prompt: str, system: str = "") -> str:
     if system:
         messages.append({"role": "system", "content": system})
     messages.append({"role": "user", "content": prompt})
-
     response = await flock_client.chat.completions.create(
         model="qwen3-30b-a3b-instruct-2507",
         messages=messages,
@@ -74,7 +93,7 @@ async def flock_complete(prompt: str, system: str = "") -> str:
     return response.choices[0].message.content
 ```
 
-## Virtuals Protocol (agent identity + GAME framework)
+### Virtual Protocol (agent identity)
 ```python
 from virtuals_sdk import game
 
@@ -86,19 +105,16 @@ agent = game.Agent(
 )
 ```
 
-## Unibase (persistent on-chain memory)
+### Unibase (persistent on-chain memory)
 ```python
-# Set in environment:
-# MEMBASE_ID=0xclaw-{agent_name}
-# MEMBASE_ACCOUNT=<bnb-wallet>
-# MEMBASE_SECRET_KEY=<key>
+# Required env vars: MEMBASE_ID, MEMBASE_ACCOUNT, MEMBASE_SECRET_KEY
 ```
 
---- OUTPUT STRUCTURE ---
-All files go to: hackathon/project/{COMPONENT}/
-Keep each module focused: one responsibility per file.
-Always include: requirements.txt (or update existing), __init__.py
-```
+---
+
+## Output Structure
+All files go to: `hackathon/project/{component}/`
+Always include: `requirements.txt` (or update existing), `__init__.py`
 
 ## Output Directory
-- `hackathon/project/{component}/`
+- `hackathon/project/`

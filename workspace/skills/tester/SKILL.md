@@ -8,41 +8,58 @@ metadata: {"nanobot": {"always": false}}
 
 ## Purpose
 Validate the generated project: syntax, imports, unit tests, and sponsor API connectivity.
-Produce a structured report with actionable fix recommendations.
+Produce a structured report. **Do not write new code or tests.**
 
 ## When to Use
 After coder agents have finished implementing. Requires `hackathon/project/` to exist.
 
-## Spawn Task Template
+## CRITICAL: Execute Directly — DO NOT use spawn()
 
+**Do NOT call spawn() for this task.**
+**Do NOT write test files or any new code** — your only output is `hackathon/test_results.json`.
+**Do NOT call message()** — just write the report file and stop.
+Also: DO NOT call web_search — it is not configured.
+
+---
+
+## Direct Execution Steps
+
+**Step 1** — Discover project layout:
 ```
-[TESTER AGENT]
-Goal: Test the hackathon project and produce a quality report.
+list_dir("hackathon/project/")
+```
+Read `hackathon/project/requirements.txt` if it exists.
 
-Step 1 — Discovery:
-  list_dir("hackathon/project/")
-  Read requirements.txt files found.
+**Step 2** — Install dependencies:
+```
+exec("cd hackathon/project && pip install -r requirements.txt -q 2>&1 | tail -10")
+```
 
-Step 2 — Environment Setup:
-  exec("cd hackathon/project && pip install -r requirements.txt -q 2>&1 | tail -10")
+**Step 3** — Syntax check:
+```
+exec("cd hackathon/project && python -m py_compile $(find . -name '*.py' | head -50) 2>&1")
+```
 
-Step 3 — Syntax Check:
-  exec("cd hackathon/project && python -m py_compile $(find . -name '*.py' | head -50) 2>&1")
+**Step 4** — Import verification:
+For each top-level Python module found, attempt:
+```
+exec("cd hackathon/project && python -c 'import {module}; print(\"OK\")'")
+```
+Record any failures.
 
-Step 4 — Import Verification:
-  For each Python module found, attempt: python -c 'import module; print("OK")'
-  Report any import failures with specific error messages.
+**Step 5** — Run existing unit tests (if any test files exist):
+```
+exec("cd hackathon/project && python -m pytest --tb=short -q 2>&1 | tail -30")
+```
+If no test files exist, record `tests_total: 0` and move on — do NOT write any test files.
 
-Step 5 — Unit Tests:
-  exec("cd hackathon/project && python -m pytest tests/ -v --tb=short 2>&1")
-  If no tests directory exists, note it as a gap.
+**Step 6** — Sponsor API smoke checks (env vars only, no real API calls):
+- FLock: `exec("python -c \"import os; print('ok' if os.environ.get('FLOCK_API_KEY') else 'missing')\"")`
+- Virtuals: check `VIRTUALS_API_KEY`
+- Unibase: check `MEMBASE_ID` and `MEMBASE_ACCOUNT`
 
-Step 6 — Sponsor API Smoke Tests:
-  FLock.io: Check FLOCK_API_KEY is set. If set, run a minimal completion request.
-  Virtuals: Check VIRTUALS_API_KEY is set.
-  Unibase: Check MEMBASE_ID and MEMBASE_ACCOUNT are set.
-
-Step 7 — Write report to hackathon/test_results.json:
+**Step 7** — Write `hackathon/test_results.json`:
+```json
 {
   "status": "pass|fail|partial",
   "timestamp": "ISO datetime",
@@ -56,7 +73,7 @@ Step 7 — Write report to hackathon/test_results.json:
     "test_coverage_estimate": "none|partial|good"
   },
   "sponsor_integrations": {
-    "flock": {"configured": true, "reachable": true, "notes": "string"},
+    "flock": {"configured": true, "reachable": null, "notes": "string"},
     "virtuals": {"configured": false, "reachable": null, "notes": "string"},
     "unibase": {"configured": false, "reachable": null, "notes": "string"}
   },
@@ -69,13 +86,12 @@ Step 7 — Write report to hackathon/test_results.json:
       "suggested_fix": "string"
     }
   ],
-  "fix_priority": [
-    "1. Fix import error in agents/orchestrator.py line 12",
-    "2. Set VIRTUALS_API_KEY + MEMBASE_ID in environment"
-  ],
+  "fix_priority": ["1. ...", "2. ..."],
   "demo_readiness": "not_ready|partially_ready|ready"
 }
 ```
+
+Your task is complete once `hackathon/test_results.json` is written. Stop immediately after.
 
 ## Output File
 - `hackathon/test_results.json`
