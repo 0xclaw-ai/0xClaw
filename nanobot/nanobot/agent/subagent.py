@@ -4,7 +4,7 @@ import asyncio
 import json
 import uuid
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from loguru import logger
 
@@ -34,6 +34,7 @@ class SubagentManager:
         web_proxy: str | None = None,
         exec_config: "ExecToolConfig | None" = None,
         restrict_to_workspace: bool = False,
+        write_guard: Callable[[str], str | None] | None = None,
     ):
         from nanobot.config.schema import ExecToolConfig
         self.provider = provider
@@ -47,8 +48,33 @@ class SubagentManager:
         self.web_proxy = web_proxy
         self.exec_config = exec_config or ExecToolConfig()
         self.restrict_to_workspace = restrict_to_workspace
+        self._write_guard = write_guard
         self._running_tasks: dict[str, asyncio.Task[None]] = {}
         self._session_tasks: dict[str, set[str]] = {}  # session_key -> {task_id, ...}
+
+    def set_write_guard(self, guard: Callable[[str], str | None] | None) -> None:
+        """Set a path guard applied to write/edit operations in subagents."""
+        self._write_guard = guard
+
+    def _apply_write_guards(self, tools: ToolRegistry) -> None:
+        if self._write_guard is None:
+            return
+
+        for tool_name in ("write_file", "edit_file"):
+            tool = tools.get(tool_name)
+            if tool is None:
+                continue
+            original = tool.execute
+
+            async def guarded_execute(*args, __original=original, **kwargs):  # type: ignore[no-untyped-def]
+                path = kwargs.get("path")
+                if isinstance(path, str):
+                    err = self._write_guard(path)
+                    if err:
+                        return f"Error: {err}"
+                return await __original(*args, **kwargs)
+
+            tool.execute = guarded_execute  # type: ignore[method-assign]
 
     async def spawn(
         self,
@@ -108,6 +134,7 @@ class SubagentManager:
             ))
             tools.register(WebSearchTool(api_key=self.brave_api_key, proxy=self.web_proxy))
             tools.register(WebFetchTool(proxy=self.web_proxy))
+            self._apply_write_guards(tools)
             
             system_prompt = self._build_subagent_prompt()
             messages: list[dict[str, Any]] = [

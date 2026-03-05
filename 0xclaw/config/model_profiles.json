@@ -1,0 +1,67 @@
+{
+  "profiles": [
+    {
+      "phase": "research",
+      "provider": "flock",
+      "model": "qwen3-30b-a3b-instruct-2507",
+      "max_tokens": 4096,
+      "temperature": 0.2,
+      "timeout_s": 180,
+      "fallback": "doc"
+    },
+    {
+      "phase": "idea",
+      "provider": "flock",
+      "model": "qwen3-30b-a3b-instruct-2507",
+      "max_tokens": 4096,
+      "temperature": 0.4,
+      "timeout_s": 180,
+      "fallback": "doc"
+    },
+    {
+      "phase": "selection",
+      "provider": "flock",
+      "model": "qwen3-30b-a3b-instruct-2507",
+      "max_tokens": 2048,
+      "temperature": 0.1,
+      "timeout_s": 120,
+      "fallback": "doc"
+    },
+    {
+      "phase": "planning",
+      "provider": "flock",
+      "model": "qwen3-30b-a3b-instruct-2507",
+      "max_tokens": 8192,
+      "temperature": 0.2,
+      "timeout_s": 240,
+      "fallback": "research"
+    },
+    {
+      "phase": "coding",
+      "provider": "flock",
+      "model": "qwen3-30b-a3b-instruct-2507",
+      "max_tokens": 8192,
+      "temperature": 0.1,
+      "timeout_s": 300,
+      "fallback": "planning"
+    },
+    {
+      "phase": "testing",
+      "provider": "flock",
+      "model": "qwen3-30b-a3b-instruct-2507",
+      "max_tokens": 4096,
+      "temperature": 0.1,
+      "timeout_s": 240,
+      "fallback": "coding"
+    },
+    {
+      "phase": "doc",
+      "provider": "flock",
+      "model": "qwen3-30b-a3b-instruct-2507",
+      "max_tokens": 8192,
+      "temperature": 0.3,
+      "timeout_s": 180,
+      "fallback": null
+    }
+  ]
+}
