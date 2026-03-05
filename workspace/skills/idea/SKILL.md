@@ -13,41 +13,49 @@ Score each idea on multiple dimensions and recommend the best one.
 ## When to Use
 After hackathon research is complete (`hackathon/context.json` exists).
 
-## Spawn Task Template
+## CRITICAL: Execute Directly — DO NOT use spawn()
 
-```
-[IDEA AGENT]
-Goal: Generate 3 winning project ideas for the hackathon.
+**Do NOT call spawn() for this task.**
+Execute every step yourself in this conversation, then write the output file.
+Spawning a sub-agent will exhaust the tool budget on unnecessary searches and the file will never be written.
 
-Step 1 — Load Context:
-  read_file("hackathon/context.json")
+Also: DO NOT call web_search — it is not configured. All sponsor information you need is in context.json.
 
-Step 2 — Analyze sponsor landscape:
+---
+
+## Direct Execution Steps
+
+**Step 1** — Read context:
+  `read_file("hackathon/context.json")`
+
+**Step 2** — Analyse the sponsor landscape from context.json:
   - Identify Gold sponsors (highest priority for integration)
-  - List the unique API capabilities of each sponsor
-  - Find complementary sponsor pairs (e.g., FLock inference + Unibase memory)
+  - List unique API capabilities of each sponsor
+  - Find complementary sponsor pairs (e.g. FLock inference + Unibase memory)
 
-Step 3 — Generate 3 distinct ideas across these archetypes:
-  Idea A — "AI Infrastructure": A platform/protocol that other agents can use
-  Idea B — "AI Application": A user-facing tool that solves a real problem autonomously
-  Idea C — "Web3 x AI Hybrid": Combines on-chain mechanics with AI intelligence
+**Step 3** — Generate 3 distinct ideas across these archetypes:
+  - Idea A — "AI Infrastructure": A platform/protocol other agents can use
+  - Idea B — "AI Application": A user-facing tool that solves a real problem autonomously
+  - Idea C — "Web3 x AI Hybrid": Combines on-chain mechanics with AI intelligence
 
-  For each idea, ensure:
+  For each idea:
   - 2+ sponsor technologies are CORE to the mechanism (not add-ons)
   - Problem is real and well-defined
   - MVP is achievable in 5 days of coding
   - Demo moment is clear and visual
 
-Step 4 — Score each idea on these dimensions (1-5 each):
+**Step 4** — Score each idea on these dimensions (1–5 each):
   - innovation: how novel is the concept? (5 = never seen before)
   - feasibility: can it be built in 7 days solo? (5 = straightforward)
   - sponsor_depth: how integral are sponsor APIs? (5 = can't work without them)
   - demo_impact: how impressive is the live demo? (5 = judges will remember it)
   - market_fit: does it solve a real problem people care about? (5 = obvious pain point)
 
-  composite = (innovation*1.5 + feasibility*2.0 + sponsor_depth*2.0 + demo_impact*2.0 + market_fit*1.5) / 9.0
+  composite = (innovation×1.5 + feasibility×2.0 + sponsor_depth×2.0 + demo_impact×2.0 + market_fit×1.5) / 9.0
 
-Step 5 — Write output using write_file("hackathon/ideas.json", ...):
+**Step 5** — Write output with `write_file("hackathon/ideas.json", ...)`:
+
+```json
 {
   "ideas": [
     {
@@ -73,7 +81,7 @@ Step 5 — Write output using write_file("hackathon/ideas.json", ...):
       "architecture_sketch": "ASCII text diagram of key components",
       "mvp_scope": "exactly what can be demoed in 7 days",
       "wow_factor": "the one thing that makes judges say 'I've never seen this'",
-      "risks": ["list of top 3 risks"],
+      "risks": ["top 3 risks"],
       "scores": {
         "innovation": 4,
         "feasibility": 3,
@@ -88,10 +96,9 @@ Step 5 — Write output using write_file("hackathon/ideas.json", ...):
   "recommendation_rationale": "2-3 sentences explaining the choice",
   "generated_at": "ISO timestamp"
 }
-
-STOP HERE. Do NOT proceed to planning or any other phase.
-Your task is complete once ideas.json is written.
 ```
+
+Your task is complete once `hackathon/ideas.json` is written. Do not proceed to any other phase.
 
 ## Output File
 - `hackathon/ideas.json`
