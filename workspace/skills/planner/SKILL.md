@@ -19,6 +19,8 @@ After `hackathon/selected_idea.json` exists.
 [PLANNER AGENT]
 Goal: Create a complete technical plan for the selected hackathon project.
 
+TOOL CONSTRAINTS: DO NOT call web_search — it is not configured. Use web_fetch(url) only for specific known URLs. All required context is in local workspace files.
+
 Step 1 — Load inputs:
   read_file("hackathon/selected_idea.json")
   read_file("hackathon/context.json")
