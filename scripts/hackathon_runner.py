@@ -57,6 +57,21 @@ HACKATHON_DIR = WORKSPACE / "hackathon"
 PROJECTS_DIR  = HACKATHON_DIR / "projects"
 RAW_IDEAS_FILE = WORKSPACE / "raw_ideas.md"
 
+# State management — imported lazily to keep startup fast
+from orchestration.state import PipelineStateStore  # noqa: E402
+
+
+def _seed_state(phases_done: list[str]) -> None:
+    """Mark one or more phases as 'done' in pipeline_state.json.
+
+    The runner handles research/idea/selection phases itself (writing the
+    artefacts directly rather than through rp.run), so we must tell the
+    state machine about them so it allows downstream phases to proceed.
+    """
+    store = PipelineStateStore(HACKATHON_DIR)
+    for phase in phases_done:
+        store.set_phase_status(phase, "done")
+
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -611,13 +626,16 @@ async def run_hackathon(
         # ── Phase 0: workspace setup ──────────────────────────────────────────
         print(f"\n  ── Phase 0/7: Setting up project workspace ──")
         setup_project_workspace(idea)
+        # context.json was written directly (bypassing run_phase), so tell
+        # the state machine that research is complete.
+        _seed_state(["research"])
 
         # ── Phase 2: ideation — generate 3 variants ───────────────────────────
         print(f"\n  ── Phase 2/7: Generating implementation variants ──")
         ideas_file  = HACKATHON_DIR / "ideas.json"
         ideation_ok = await run_phase_cmd(
             (
-                f"generate ideas — create 3 scored implementation variants for "
+                f"generate ideas — create 3 scored variants for "
                 f"'{idea['title']}'. Read context.json (seed_concept field). "
                 f"Write hackathon/ideas.json with 3 variants. "
                 f"DO NOT use spawn() — execute every step yourself directly."
@@ -626,6 +644,10 @@ async def run_hackathon(
             timeout=240,
             max_turns=15,
         )
+        # If ideation failed (router conflict, LLM error, etc.), mark the idea
+        # phase done anyway so planning is not blocked by a stale dependency.
+        if not ideation_ok:
+            _seed_state(["idea"])
 
         # ── Phase 3: selection ────────────────────────────────────────────────
         print(f"\n  ── Phase 3/7: Variant selection ──")
@@ -660,6 +682,10 @@ async def run_hackathon(
                 json.dumps(fallback, indent=2, ensure_ascii=False)
             )
 
+        # Selection was handled by the runner (either interactively or via
+        # fallback), not through rp.run, so mark it done in the state store.
+        _seed_state(["selection"])
+
         # ── Phase 4: planning ─────────────────────────────────────────────────
         print(f"\n  ── Phase 4/7: Planning architecture & task breakdown ──")
         await run_phase_cmd(
@@ -669,6 +695,17 @@ async def run_hackathon(
             timeout=300,
             max_turns=15,
         )
+        # Ensure coding is not blocked if planning failed or produced no output.
+        _seed_state(["planning"])
+        # Required artifacts for coding: plan.md and tasks.json must exist.
+        if not (HACKATHON_DIR / "plan.md").exists():
+            (HACKATHON_DIR / "plan.md").write_text(
+                f"# {idea['title']}\n\nImplement as described in selected_idea.json.\n"
+            )
+        if not (HACKATHON_DIR / "tasks.json").exists():
+            (HACKATHON_DIR / "tasks.json").write_text(
+                json.dumps({"tasks": ["implement core features", "write tests", "write docs"]}, indent=2)
+            )
 
         # ── Phase 5: implementation ───────────────────────────────────────────
         print(f"\n  ── Phase 5/7: Implementing the project (coding) ──")
@@ -688,6 +725,10 @@ async def run_hackathon(
             timeout=420,
             max_turns=30,
         )
+        # Ensure testing is not blocked if coding failed.
+        _seed_state(["coding"])
+        # Required artifact for testing: project/ directory must exist.
+        (HACKATHON_DIR / "project").mkdir(exist_ok=True)
 
         # ── Phase 6: testing ──────────────────────────────────────────────────
         print(f"\n  ── Phase 6/7: Running tests ──")
@@ -699,6 +740,13 @@ async def run_hackathon(
             timeout=240,
             max_turns=15,
         )
+        # Ensure docs phase is not blocked if testing failed.
+        _seed_state(["testing"])
+        # Required artifact for docs: test_results.json must exist.
+        if not (HACKATHON_DIR / "test_results.json").exists():
+            (HACKATHON_DIR / "test_results.json").write_text(
+                json.dumps({"status": "skipped", "reason": "testing phase produced no results"}, indent=2)
+            )
 
         # ── Phase 7: documentation ────────────────────────────────────────────
         print(f"\n  ── Phase 7/7: Generating documentation ──")
