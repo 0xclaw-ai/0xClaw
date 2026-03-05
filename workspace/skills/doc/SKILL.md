@@ -19,6 +19,8 @@ After the project passes testing (`test_results.json` status is "pass" or "parti
 [DOC AGENT]
 Goal: Generate complete submission documentation for the hackathon project.
 
+TOOL CONSTRAINTS: DO NOT call web_search — it is not configured. Use web_fetch(url) only for specific known URLs. All required context is in local workspace files.
+
 Step 1 — Load all context:
   read_file("hackathon/selected_idea.json")
   read_file("hackathon/plan.md")

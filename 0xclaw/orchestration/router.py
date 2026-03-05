@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import Callable
 
@@ -76,6 +77,19 @@ class RouteDecision:
     source: str
 
 
+def _keyword_matches(keyword: str, text: str) -> bool:
+    """Match keyword against text.
+
+    Multi-word keywords use simple substring matching.
+    Single-word keywords use word-boundary matching to avoid false positives
+    (e.g. 'idea' must not match 'selected_idea', 'implement' must not match
+    'implementation').
+    """
+    if " " in keyword:
+        return keyword in text
+    return bool(re.search(r"\b" + re.escape(keyword) + r"\b", text))
+
+
 class SkillRouter:
     """Route free-form input to pipeline phase."""
 
@@ -89,7 +103,7 @@ class SkillRouter:
 
         matches: list[str] = []
         for phase, keys in KEYWORD_MAP.items():
-            if any(k in text for k in keys):
+            if any(_keyword_matches(k, text) for k in keys):
                 matches.append(phase)
 
         if len(matches) == 1:
