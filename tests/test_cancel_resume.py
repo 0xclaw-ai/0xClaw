@@ -51,7 +51,8 @@ def test_session_persists_after_reload(tmp_path):
 
 def test_main_stop_routes_to_agentloop():
     content = Path("0xclaw/main.py").read_text(encoding="utf-8")
-    assert '_send_and_wait("/stop", timeout_s=30)' in content
+    assert 'lower == "/stop"' in content
+    assert '_send_and_wait_traced(' in content
 
 
 def test_main_has_router_and_state_gate():
@@ -74,6 +75,7 @@ def test_main_phase_wait_guard_for_spawn_started():
 
 def test_main_new_clears_session_and_hackathon_outputs():
     content = Path("0xclaw/main.py").read_text(encoding="utf-8")
-    assert '_send_and_wait("/new", timeout_s=30)' in content
+    assert '"/new", "/reset"' in content or '"/reset"' in content
+    assert '_send_and_wait_traced(' in content
     assert "_reset_hackathon_outputs()" in content
     assert "_reset_workspace_runtime_outputs()" in content

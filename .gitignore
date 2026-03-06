@@ -23,6 +23,19 @@ workspace/.history/
 workspace/sessions/
 workspace/memory/HISTORY.md
 
+# Pipeline runtime state (generated at run time)
+workspace/hackathon/envelopes.jsonl
+workspace/hackathon/metrics.jsonl
+workspace/hackathon/pipeline_state.json
+workspace/hackathon/artifacts/
+workspace/hackathon/projects/
+
+# DevAgent local state directory
+.devagent/
+
+# Orphaned nanobot framework tests (vendored copy lives in 0xclaw/framework/)
+nanobot/
+
 # =============================================================================
 # Python
 # =============================================================================
