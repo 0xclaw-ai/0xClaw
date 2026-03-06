@@ -2,7 +2,7 @@
   "agents": {
     "defaults": {
       "workspace": "./workspace",
-      "model": "qwen3-30b-a3b-instruct-2507",
+      "model": "minimax-m2.5",
       "provider": "flock",
       "maxTokens": 8192,
       "temperature": 0.1,
@@ -11,6 +11,14 @@
     }
   },
   "providers": {
+    "custom": {
+      "apiKey": "${ZAI_API_KEY}",
+      "apiBase": "https://open.bigmodel.cn/api/paas/v4/"
+    },
+    "zhipu": {
+      "apiKey": "${ZAI_API_KEY}",
+      "apiBase": "https://open.bigmodel.cn/api/paas/v4/"
+    },
     "flock": {
       "apiKey": "${FLOCK_API_KEY}",
       "apiBase": "https://api.flock.io/v1",

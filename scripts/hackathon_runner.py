@@ -56,6 +56,7 @@ WORKSPACE    = ROOT / "workspace"
 HACKATHON_DIR = WORKSPACE / "hackathon"
 PROJECTS_DIR  = HACKATHON_DIR / "projects"
 RAW_IDEAS_FILE = WORKSPACE / "raw_ideas.md"
+MODEL_PROFILES_PATH = ROOT / "0xclaw" / "config" / "model_profiles.json"
 
 # State management — imported lazily to keep startup fast
 from orchestration.state import PipelineStateStore  # noqa: E402
@@ -81,6 +82,22 @@ def _slug(title: str) -> str:
 
 def _wrap(text: str, width: int = 60, indent: str = "  ") -> list[str]:
     return textwrap.wrap(text, width, subsequent_indent=indent)
+
+
+def _phase_idle_timeout(phase: str, default: int) -> int:
+    """Read per-phase idle timeout from model_profiles.json."""
+    try:
+        raw = json.loads(MODEL_PROFILES_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        return default
+
+    for row in raw.get("profiles", []):
+        if row.get("phase") == phase:
+            try:
+                return int(row.get("timeout_s", default))
+            except (TypeError, ValueError):
+                return default
+    return default
 
 
 # ── Idea parsing ───────────────────────────────────────────────────────────────
@@ -518,7 +535,10 @@ async def run_phase_cmd(
     await rp.run(command, timeout_per_turn=timeout, max_turns=max_turns)
 
     if output_file is not None:
-        ok = output_file.exists() and output_file.stat().st_size > 10
+        if output_file.is_dir():
+            ok = output_file.exists() and any(output_file.rglob("*"))
+        else:
+            ok = output_file.exists() and output_file.stat().st_size > 10
         rel = output_file.relative_to(ROOT) if output_file.is_relative_to(ROOT) else output_file
         if ok:
             print(f"  ✓ Output: {rel}")
@@ -721,8 +741,8 @@ async def run_hackathon(
             "(4) When requirements.txt and main.py are both written, STOP immediately — do not continue. "
             "DO NOT use spawn() — execute every task yourself directly. "
             "DO NOT call message() when done — just stop.",
-            output_file=None,
-            timeout=420,
+            output_file=HACKATHON_DIR / "project",
+            timeout=_phase_idle_timeout("coding", 420),
             max_turns=30,
         )
         # Ensure testing is not blocked if coding failed.

@@ -3,7 +3,7 @@
     {
       "phase": "research",
       "provider": "flock",
-      "model": "qwen3-30b-a3b-instruct-2507",
+      "model": "minimax-m2.1",
       "max_tokens": 4096,
       "temperature": 0.2,
       "timeout_s": 180,
@@ -12,7 +12,7 @@
     {
       "phase": "idea",
       "provider": "flock",
-      "model": "qwen3-30b-a3b-instruct-2507",
+      "model": "minimax-m2.1",
       "max_tokens": 4096,
       "temperature": 0.4,
       "timeout_s": 180,
@@ -21,7 +21,7 @@
     {
       "phase": "selection",
       "provider": "flock",
-      "model": "qwen3-30b-a3b-instruct-2507",
+      "model": "minimax-m2.1",
       "max_tokens": 2048,
       "temperature": 0.1,
       "timeout_s": 120,
@@ -30,7 +30,7 @@
     {
       "phase": "planning",
       "provider": "flock",
-      "model": "qwen3-30b-a3b-instruct-2507",
+      "model": "minimax-m2.5",
       "max_tokens": 8192,
       "temperature": 0.2,
       "timeout_s": 240,
@@ -39,8 +39,8 @@
     {
       "phase": "coding",
       "provider": "flock",
-      "model": "qwen3-30b-a3b-instruct-2507",
-      "max_tokens": 8192,
+      "model": "minimax-m2.5",
+      "max_tokens": 16258,
       "temperature": 0.1,
       "timeout_s": 300,
       "fallback": "planning"
@@ -48,7 +48,7 @@
     {
       "phase": "testing",
       "provider": "flock",
-      "model": "qwen3-30b-a3b-instruct-2507",
+      "model": "minimax-m2.5",
       "max_tokens": 4096,
       "temperature": 0.1,
       "timeout_s": 240,
@@ -57,7 +57,7 @@
     {
       "phase": "doc",
       "provider": "flock",
-      "model": "qwen3-30b-a3b-instruct-2507",
+      "model": "minimax-m2.1",
       "max_tokens": 8192,
       "temperature": 0.3,
       "timeout_s": 180,
