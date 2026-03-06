@@ -9,6 +9,7 @@ import signal
 import shutil
 import sys
 import time
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -97,13 +98,42 @@ LOGO_LINES = [
 
 # ── slash commands ─────────────────────────────────────────────────────────────
 SLASH_COMMANDS: dict[str, str] = {
-    "/status": "Show pipeline progress",
-    "/resume": "Resume from the latest checkpoint",
-    "/new":    "Reset session and clear all pipeline outputs",
-    "/stop":   "Cancel the current running task",
-    "/exit":   "Exit 0xClaw",
-    "/help":   "Show this help",
+    "/status":        "Show pipeline progress and session token usage",
+    "/resume":        "Resume from the latest checkpoint",
+    "/redo <phase>":  "Reset phase (and downstream) and re-run it",
+    "/new":           "Reset session and clear all pipeline outputs",
+    "/stop":          "Cancel the current running task",
+    "/exit":          "Exit 0xClaw",
+    "/help":          "Show this help",
 }
+
+PHASES_LIST = list(PHASE_OUTPUTS.keys())  # ordered pipeline phase names
+
+
+# ── token tracking ─────────────────────────────────────────────────────────────
+@dataclass
+class TokenCounter:
+    """Accumulates token usage across all LLM calls in a session."""
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    total_tokens: int = 0
+
+    def add(self, usage: dict) -> None:
+        self.prompt_tokens += usage.get("prompt_tokens", 0)
+        self.completion_tokens += usage.get("completion_tokens", 0)
+        self.total_tokens += usage.get("total_tokens", 0)
+
+    @staticmethod
+    def _k(n: int) -> str:
+        return f"{n / 1000:.1f}k" if n >= 1000 else str(n)
+
+    def fmt(self) -> str:
+        if self.total_tokens == 0:
+            return ""
+        return (
+            f"↑{self._k(self.prompt_tokens)} ↓{self._k(self.completion_tokens)}"
+            f"  total {self._k(self.total_tokens)}"
+        )
 
 
 # ── banner ─────────────────────────────────────────────────────────────────────
@@ -290,6 +320,45 @@ def _is_spawn_started_message(text: str) -> bool:
     return t.startswith("Subagent [") and " started (id: " in t
 
 
+def _make_tracking_provider(config: Config, counter: TokenCounter):
+    """Return a provider that intercepts every LLM response to count tokens."""
+    from nanobot.providers.base import LLMProvider, LLMResponse
+
+    inner = _make_provider(config)
+
+    class _Wrapper(LLMProvider):
+        def __init__(self):
+            super().__init__(getattr(inner, "api_key", None), getattr(inner, "api_base", None))
+
+        async def chat(self, messages, tools=None, model=None, max_tokens=4096, temperature=0.7, reasoning_effort=None):
+            resp = await inner.chat(messages, tools=tools, model=model, max_tokens=max_tokens, temperature=temperature, reasoning_effort=reasoning_effort)
+            if resp.usage:
+                counter.add(resp.usage)
+            return resp
+
+        def get_default_model(self) -> str:
+            return inner.get_default_model()
+
+    return _Wrapper()
+
+
+def _reset_phase_and_downstream(phase: str, state_store: PipelineStateStore) -> list[str]:
+    """Reset phase and all downstream phases to pending. Returns list of affected phase names."""
+    idx = PHASES_LIST.index(phase)
+    state = state_store.load()
+    reset: list[str] = []
+    for row in state["phases"]:
+        if row["name"] in PHASES_LIST[idx:]:
+            if row["status"] != "pending":
+                row["status"] = "pending"
+                row["updated_at"] = None
+                reset.append(row["name"])
+    state["last_error"] = None
+    state["active_task"] = None
+    state_store.save(state)
+    return reset
+
+
 def _reset_hackathon_outputs() -> list[str]:
     HACKATHON_DIR.mkdir(parents=True, exist_ok=True)
     removed: list[str] = []
@@ -367,11 +436,12 @@ async def run_interactive(config: Config) -> None:
     active_trace_id: str | None = None
     bg_phase: str | None = None      # phase handed off to background monitor
     bg_trace_id: str | None = None
+    token_counter = TokenCounter()
     init_anyway_from_env()
 
     # ── agent setup ────────────────────────────────────────────────────────────
     bus = MessageBus()
-    provider = _make_provider(config)
+    provider = _make_tracking_provider(config, token_counter)
     session_manager = SessionManager(WORKSPACE)
     state_store = PipelineStateStore(HACKATHON_DIR)
     state_machine = OrchestratorStateMachine(WORKSPACE, state_store)
@@ -543,6 +613,9 @@ async def run_interactive(config: Config) -> None:
 
                 if lower == "/status":
                     _show_pipeline_status(state_store)
+                    tok = token_counter.fmt()
+                    if tok:
+                        console.print(f"  [dim]Tokens this session  {tok}[/dim]\n")
                     continue
 
                 if lower == "/stop":
@@ -561,6 +634,97 @@ async def run_interactive(config: Config) -> None:
                         console.print(f"[yellow]{response.strip()}[/yellow]")
                     else:
                         console.print("[yellow]⏹  Stop signal sent.[/yellow]")
+                    continue
+
+                if lower.startswith("/redo"):
+                    parts = cmd.split(maxsplit=1)
+                    arg = parts[1].strip().lower() if len(parts) > 1 else ""
+                    target_phase: str | None = None
+                    if arg.isdigit():
+                        idx = int(arg) - 1
+                        if 0 <= idx < len(PHASES_LIST):
+                            target_phase = PHASES_LIST[idx]
+                    elif arg in PHASES_LIST:
+                        target_phase = arg
+                    if not target_phase:
+                        console.print("[yellow]Usage:[/yellow] /redo <phase-name-or-number>")
+                        console.print(
+                            "  Phases: "
+                            + "  ".join(f"[dim]{i + 1}.[/dim][cyan]{p}[/cyan]" for i, p in enumerate(PHASES_LIST))
+                        )
+                        continue
+                    reset = _reset_phase_and_downstream(target_phase, state_store)
+                    console.print(f"[dim]Reset:[/dim] {', '.join(reset)}")
+                    _redo_commands = {
+                        "research": "run research phase",
+                        "idea": "generate ideas",
+                        "selection": "select best idea for DevAgent",
+                        "planning": "plan the architecture",
+                        "coding": "implement the project",
+                        "testing": "run tests",
+                        "doc": "generate documentation and submission",
+                    }
+                    redo_cmd = _redo_commands[target_phase]
+                    redo_route = router.route(redo_cmd)
+                    if not redo_route.phase:
+                        console.print(f"[red]Route failed:[/red] {redo_route.reason}")
+                        continue
+                    redo_check = state_machine.validate_phase_entry(redo_route.phase)
+                    if not redo_check.ok:
+                        console.print("[red]Phase blocked after reset:[/red]")
+                        for err in redo_check.errors:
+                            console.print(f"  - {err}")
+                        continue
+                    redo_profile = profile_resolver.resolve(redo_route.phase)
+                    if redo_profile:
+                        console.print(
+                            f"[dim]Profile[/dim] {redo_profile.provider}/{redo_profile.model} "
+                            f"[dim](timeout {redo_profile.timeout_s}s)[/dim]"
+                        )
+                    active_phase = redo_route.phase
+                    active_trace_id = f"cli-{int(time.time())}-{redo_route.phase}"
+                    state_machine.checkpoint(redo_route.phase, "running", active_task=active_trace_id)
+                    redo_envelope = Envelope.from_command(
+                        session_id="cli:direct",
+                        phase=redo_route.phase,
+                        agent_id="orchestrator",
+                        trace_id=active_trace_id,
+                        payload={"user_command": redo_cmd, "phase": redo_route.phase},
+                    )
+                    _append_envelope(redo_envelope)
+                    redo_message = (
+                        "You are executing a single pipeline phase. "
+                        "Consume the envelope below and complete only that phase.\n"
+                        "IMPORTANT: call spawn at most once for this phase. "
+                        "If a spawned task is running, wait for its system result and do not spawn duplicates.\n\n"
+                        + json.dumps(redo_envelope.to_dict(), ensure_ascii=False)
+                    )
+                    redo_timeout = redo_profile.timeout_s if redo_profile else DEFAULT_PHASE_TIMEOUT_S
+                    response = await _send_and_wait_traced(
+                        redo_message,
+                        timeout_s=redo_timeout,
+                        command=redo_cmd,
+                        phase=redo_route.phase,
+                        route_source=redo_route.source,
+                    )
+                    output = PHASE_OUTPUTS.get(redo_route.phase)
+                    if _output_exists(output):
+                        state_machine.checkpoint(redo_route.phase, "done")
+                        active_phase = None
+                        active_trace_id = None
+                    else:
+                        bg_phase = active_phase
+                        bg_trace_id = active_trace_id
+                        active_phase = None
+                        active_trace_id = None
+                    if response:
+                        console.print()
+                        console.print("[bold cyan]🦀  0xClaw[/bold cyan]")
+                        console.print(Markdown(response))
+                        tok = token_counter.fmt()
+                        if tok:
+                            console.print(f"  [dim]{tok}[/dim]")
+                        console.print()
                     continue
 
                 if lower == "/new":
@@ -647,6 +811,9 @@ async def run_interactive(config: Config) -> None:
                         console.print()
                         console.print("[bold cyan]🦀  0xClaw[/bold cyan]")
                         console.print(Markdown(response))
+                        tok = token_counter.fmt()
+                        if tok:
+                            console.print(f"  [dim]{tok}[/dim]")
                         console.print()
                     continue
 
@@ -737,6 +904,9 @@ async def run_interactive(config: Config) -> None:
                 console.print()
                 console.print("[bold cyan]🦀  0xClaw[/bold cyan]")
                 console.print(Markdown(response))
+                tok = token_counter.fmt()
+                if tok:
+                    console.print(f"  [dim]{tok}[/dim]")
                 console.print()
 
     finally:
