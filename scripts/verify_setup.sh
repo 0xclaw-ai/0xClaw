@@ -63,13 +63,32 @@ check_key() {
   fi
 }
 check_key "FLOCK_API_KEY"   "${FLOCK_API_KEY:-}"
+check_key "ZAI_API_KEY"     "${ZAI_API_KEY:-}"
 
 check_key "VIRTUALS_API_KEY" "${VIRTUALS_API_KEY:-}"
 check_key "MEMBASE_ID"      "${MEMBASE_ID:-}"
 
-# Test FLock connectivity
+# Test Zhipu connectivity
 echo ""
 echo "API Connectivity:"
+if [[ -n "${ZAI_API_KEY:-}" ]]; then
+  echo -n "  Zhipu GLM-5... "
+  RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" \
+    -X POST "https://open.bigmodel.cn/api/paas/v4/chat/completions" \
+    -H "Content-Type: application/json" \
+    -H "Authorization: Bearer $ZAI_API_KEY" \
+    -d '{"model":"glm-5","messages":[{"role":"user","content":"hi"}],"max_tokens":5}' \
+    --max-time 10 2>/dev/null || echo "000")
+  if [[ "$RESPONSE" == "200" ]]; then
+    echo "✓ reachable (200)"
+  else
+    echo "✗ HTTP $RESPONSE"
+  fi
+else
+  echo "  Zhipu GLM-5... skipped (no key)"
+fi
+
+# Test FLock connectivity
 if [[ -n "${FLOCK_API_KEY:-}" ]]; then
   echo -n "  FLock.io... "
   RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" \
