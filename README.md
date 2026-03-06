@@ -18,7 +18,6 @@ Built on [nanobot](https://github.com/HKUDS/nanobot) for the
 ```bash
 conda create -n 0xclaw python=3.11 -y
 conda activate 0xclaw
-pip install -e nanobot/
 pip install -e .
 
 cp .env.example .env
@@ -42,10 +41,10 @@ Verify everything is configured correctly first:
 
 ```
 0xclaw/          Entry point and config
+  framework/     Integrated nanobot runtime (vendored in-project)
 workspace/       Agent identity, skills, and pipeline state
   skills/        hackathon-research, idea, planner, coder, tester, doc
   hackathon/     Runtime outputs (gitignored)
-nanobot/         Framework (nanobot-ai, Python OpenClaw implementation)
 scripts/         start.sh, verify_setup.sh
 ```
 

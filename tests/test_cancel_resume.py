@@ -25,7 +25,7 @@ def test_session_persists_after_reload(tmp_path):
     import types
 
     root = Path(__file__).resolve().parents[1]
-    sys.path.insert(0, str(root / "nanobot"))
+    sys.path.insert(0, str(root / "0xclaw" / "framework"))
     if "loguru" not in sys.modules:
         fake_logger = types.SimpleNamespace(
             info=lambda *args, **kwargs: None,

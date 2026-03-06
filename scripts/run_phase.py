@@ -11,7 +11,7 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 ROOT = Path(__file__).parent.parent
-sys.path.insert(0, str(ROOT / "nanobot"))
+sys.path.insert(0, str(ROOT / "0xclaw" / "framework"))
 sys.path.insert(0, str(ROOT / "0xclaw"))
 from nanobot.agent.loop import AgentLoop
 from nanobot.bus.events import InboundMessage
