@@ -33,7 +33,7 @@ workspace/hackathon/projects/
 # DevAgent local state directory
 .devagent/
 
-# Orphaned nanobot framework tests (vendored copy lives in 0xclaw/framework/)
+# Safety: ignore any stray top-level nanobot/ directory
 nanobot/
 
 # =============================================================================

@@ -38,7 +38,7 @@ Remaining work: demo video, GitHub repo publish, DoraHacks BUIDL page submission
 ```bash
 conda activate 0xclaw          # Python 3.11, all deps installed
 cp .env.example .env           # first time only; fill in real API keys
-./scripts/verify_setup.sh      # confirms nanobot import + workspace + API keys
+./scripts/verify_setup.sh      # confirms runtime import + workspace + API keys
 ./scripts/start.sh             # launch the agent
 ./scripts/start.sh --logs      # launch with loguru output visible
 ```
@@ -76,9 +76,10 @@ Layer 1 — 0xClaw (the agent we maintain)
   0xclaw/main.py            CLI entry point, interactive REPL, slash commands
   0xclaw/orchestration/     Phase routing, state machine, write guards, model profiles
   0xclaw/observability/     Anyway OpenTelemetry tracing (optional)
-  0xclaw/tools/             VirtualsTool, UnibaseTool (custom nanobot tools)
+  0xclaw/tools/             VirtualsTool, UnibaseTool (custom agent tools)
   0xclaw/config/            config.json (providers), model_profiles.json (per-phase settings)
-  0xclaw/framework/         Vendored nanobot runtime — DO NOT modify except registry.py + schema.py
+  0xclaw/runtime/           Integrated agent runtime engine (DO NOT modify except providers/registry.py + config/schema.py)
+  launcher/                 CLI entry point wrapper (resolves 0x hex-literal import issue)
   workspace/                Agent identity, skills, pipeline state
 
 Layer 2 — Generated project (DevAgent)
@@ -104,8 +105,8 @@ Layer 2 — Generated project (DevAgent)
 | `0xclaw/observability/anyway.py` | `init_anyway_from_env()`, `workflow_span()` — gracefully no-ops if key absent |
 | `0xclaw/tools/virtuals_tool.py` | Virtuals Protocol GAME SDK — on-chain agent identity |
 | `0xclaw/tools/unibase_tool.py` | Unibase membase — persistent on-chain memory |
-| `0xclaw/framework/nanobot/providers/registry.py` | FLock provider spec (our addition — safe to modify) |
-| `0xclaw/framework/nanobot/config/schema.py` | `ProvidersConfig` with `flock` field (our addition — safe to modify) |
+| `0xclaw/runtime/providers/registry.py` | FLock provider spec (our addition — safe to modify) |
+| `0xclaw/runtime/config/schema.py` | `ProvidersConfig` with `flock` field (our addition — safe to modify) |
 | `workspace/SOUL.md` | Agent identity and mission (loaded every turn) |
 | `workspace/AGENTS.md` | 7-phase pipeline protocol (loaded every turn) |
 | `workspace/skills/*/SKILL.md` | Spawn task templates — one per pipeline phase |
@@ -114,7 +115,7 @@ Layer 2 — Generated project (DevAgent)
 
 ## Orchestration layer
 
-The `0xclaw/orchestration/` package sits between `main.py` and nanobot.
+The `0xclaw/orchestration/` package sits between `main.py` and the agent runtime.
 
 **`SkillRouter`** maps free-form user input to a pipeline phase via keyword rules, with an
 LLM classifier as fallback. `KEYWORD_MAP` in `router.py` covers English and Chinese triggers.
@@ -128,7 +129,7 @@ break for CJK characters).
 **`PipelineStateStore`** is a file-backed store at `workspace/hackathon/pipeline_state.json`.
 Phase lifecycle: `pending → running → done | failed | cancelled`.
 
-**Write guards** — `install_phase_write_guards()` monkey-patches nanobot's `write_file` /
+**Write guards** — `install_phase_write_guards()` monkey-patches the runtime's `write_file` /
 `edit_file` tools so sub-agents can only write inside their allowed directories. A violation
 returns an error string; it does not raise (sub-agent continues safely).
 
@@ -144,14 +145,14 @@ non-`done` phase and returning its natural-language command (via `PHASE_TO_COMMA
 
 ---
 
-## Nanobot framework internals
+## Runtime internals
 
-> The nanobot source lives in `0xclaw/framework/nanobot/`. The top-level `nanobot/` directory
-> contains orphaned framework tests from a previous layout — it is removed from git tracking
-> and ignored. Do not commit anything to it.
+> The agent runtime lives in `0xclaw/runtime/`. It is the execution engine for all agent
+> behaviour — do not modify it except `runtime/providers/registry.py` and `runtime/config/schema.py`
+> (our FLock additions). All imports use `from runtime.xxx import yyy`.
 
-**Skills** — `SKILL.md` files in `workspace/skills/{name}/`. Auto-loaded when `always: true` is
-set in frontmatter. Loaded on-demand via `read_file` otherwise.
+**Skills** — `SKILL.md` files in `workspace/skills/{name}/`. Frontmatter key is `openclaw`.
+Auto-loaded when `always: true` is set; loaded on-demand via `read_file` otherwise.
 
 **`spawn()`** — creates a background asyncio sub-agent with its own isolated tool registry
 (no `spawn` or `message` tools). Results arrive as `channel="system"` messages on the main
@@ -161,9 +162,9 @@ agent's bus. Sub-agents have no shared memory — all context must be embedded i
 `MEMORY.md` is loaded separately for long-term state.
 
 **`sync_workspace_templates`** — called at startup. Creates missing workspace files from
-templates; never overwrites files that already exist.
+templates in `runtime/templates/`; never overwrites files that already exist.
 
-**File paths in tasks** — nanobot resolves relative paths as `workspace_dir / path`.
+**File paths in tasks** — the runtime resolves relative paths as `workspace_dir / path`.
 Always write `hackathon/context.json` (not `workspace/hackathon/context.json`). Same rule
 applies to `exec()` working directory.
 
@@ -190,9 +191,9 @@ applies to `exec()` working directory.
 - Use `workflow_span(name, attrs)` context manager to wrap phase runs with traces.
 
 ### Adding a new provider
-Edit `config.json` (add under `providers`). Update `schema.py` only if adding a new typed
-field to `ProvidersConfig`. The `agents.defaults.provider` key picks the default provider
-when no model-level override is active.
+Edit `config.json` (add under `providers`). Update `runtime/config/schema.py` only if adding
+a new typed field to `ProvidersConfig`. The `agents.defaults.provider` key picks the default
+provider when no model-level override is active.
 
 ---
 
@@ -293,10 +294,10 @@ Dependencies: `click>=8.1`, `rich>=13.7`, `httpx>=0.27`, `openai>=1.66,<2.0`
 
 ## Rules and constraints
 
-- **Never modify nanobot source** except `registry.py` and `schema.py` (our FLock additions)
+- **Only modify `runtime/providers/registry.py` and `runtime/config/schema.py`** — all other files in `0xclaw/runtime/` are the engine; leave them alone
 - **Never commit `.env`** — gitignored, but double-check before any push
 - **All workspace/hackathon/ outputs are gitignored** — they are runtime artefacts, not source
 - **Sub-agent task strings must be self-contained** — sub-agents have no shared memory
 - **Write guard violations surface as tool errors**, not Python exceptions — sub-agent continues
 - **litellm requires openai>=1.66** — do not downgrade openai below 1.66 (breaks `openai.types.responses`)
-- **Top-level `nanobot/` directory is gitignored and untracked** — do not add files there
+- **`launcher/` is the CLI entry point wrapper** — `pyproject.toml` points `0xclaw` command here; do not rename it

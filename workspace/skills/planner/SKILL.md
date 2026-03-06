@@ -1,7 +1,7 @@
 ---
 name: planner
 description: Create detailed system architecture and 7-day sprint task breakdown for a hackathon project
-metadata: {"nanobot": {"always": false}}
+metadata: {"openclaw": {"always": false}}
 ---
 
 # Project Planner Skill

@@ -48,7 +48,7 @@ from dotenv import load_dotenv
 load_dotenv(ROOT / ".env")
 
 # web_search requires BRAVE_API_KEY; we don't have one, so clear it so
-# nanobot's WebSearchTool returns an error string instead of making
+# The agent runtime's WebSearchTool returns an error string instead of making
 # failed HTTP calls that waste sub-agent turns.
 os.environ.pop("BRAVE_API_KEY", None)
 

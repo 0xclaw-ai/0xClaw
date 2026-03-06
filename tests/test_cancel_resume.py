@@ -25,7 +25,7 @@ def test_session_persists_after_reload(tmp_path):
     import types
 
     root = Path(__file__).resolve().parents[1]
-    sys.path.insert(0, str(root / "0xclaw" / "framework"))
+    sys.path.insert(0, str(root / "0xclaw"))
     if "loguru" not in sys.modules:
         fake_logger = types.SimpleNamespace(
             info=lambda *args, **kwargs: None,
@@ -33,7 +33,7 @@ def test_session_persists_after_reload(tmp_path):
             exception=lambda *args, **kwargs: None,
         )
         sys.modules["loguru"] = types.SimpleNamespace(logger=fake_logger)
-    from nanobot.session.manager import SessionManager
+    from runtime.session.manager import SessionManager
 
     workspace = tmp_path / "workspace"
     workspace.mkdir(parents=True)

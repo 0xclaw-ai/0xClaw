@@ -1,7 +1,7 @@
 ---
 name: hackathon-research
 description: Research hackathon requirements, sponsors, prizes, and judging criteria
-metadata: {"nanobot": {"always": false}}
+metadata: {"openclaw": {"always": false}}
 ---
 
 # Hackathon Research Skill

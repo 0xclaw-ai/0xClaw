@@ -1,7 +1,7 @@
 ---
 name: doc
 description: Generate project README, technical docs, and DoraHacks submission materials
-metadata: {"nanobot": {"always": false}}
+metadata: {"openclaw": {"always": false}}
 ---
 
 # Documentation Agent Skill
@@ -71,10 +71,10 @@ Step 3 — Generate README.md:
 
   ## About 0xClaw
   This project was built autonomously by 0xClaw, an AI agent system built on
-  the nanobot framework (Python implementation of the OpenClaw ecosystem).
+  the 0xClaw agent system (OpenClaw ecosystem).
   0xClaw participated in and submitted to this very hackathon.
 
-  Built with: nanobot | FLock.io | Virtual Protocol | Unibase
+  Built with: FLock.io | Virtual Protocol | Unibase
 
 Step 4 — Generate SUBMISSION.md:
   - DoraHacks BUIDL tagline (< 160 characters, compelling)

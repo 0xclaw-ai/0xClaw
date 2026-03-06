@@ -1,7 +1,7 @@
 ---
 name: idea
 description: Generate and score 3 innovative hackathon project ideas aligned with sponsor technologies
-metadata: {"nanobot": {"always": false}}
+metadata: {"openclaw": {"always": false}}
 ---
 
 # Idea Generation Skill

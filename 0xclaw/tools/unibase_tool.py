@@ -1,4 +1,4 @@
-"""Unibase (membase) tool for nanobot.
+"""Unibase (membase) tool for 0xClaw.
 
 Provides on-chain persistent memory for agent decisions and interactions
 using the Unibase membase SDK. Allows 0xClaw to store and retrieve agent
@@ -11,7 +11,7 @@ import json
 import os
 from typing import Any
 
-from nanobot.agent.tools.base import Tool
+from runtime.agent.tools.base import Tool
 
 
 class UnibaseTool(Tool):
