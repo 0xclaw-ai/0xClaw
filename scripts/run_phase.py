@@ -496,6 +496,12 @@ async def run(command: str, timeout_per_turn: int = 240, max_turns: int = MAX_TU
         await asyncio.gather(bus_task, return_exceptions=True)
         await agent.close_mcp()
 
+    # Final check: the output file may have been written by a subagent after
+    # the last LLM turn but before the loop exhausted — check one more time.
+    if not success and _output_exists(output_file):
+        print(f"[✓] Output detected after loop: {output_file}")
+        success = True
+
     phase_status = "done" if success else "failed"
     if llm_turns > 0:
         with workflow_span(
