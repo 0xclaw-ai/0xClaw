@@ -75,9 +75,9 @@ Layer 2 — Generated project (what 0xClaw produces)
 | `workspace/skills/*/SKILL.md` | Spawn task templates for each pipeline phase |
 | `0xclaw/tools/virtuals_tool.py` | Virtual Protocol GAME SDK — registers on-chain agent identity |
 | `0xclaw/tools/unibase_tool.py` | Unibase membase — persistent on-chain agent memory |
-| `nanobot/nanobot/providers/registry.py` | FLock provider spec (we added this) |
-| `nanobot/nanobot/config/schema.py` | ProvidersConfig (we added flock field) |
-| `scripts/start.sh` | Startup script (activates conda, installs nanobot if needed) |
+| `0xclaw/framework/nanobot/providers/registry.py` | FLock provider spec (we added this) |
+| `0xclaw/framework/nanobot/config/schema.py` | ProvidersConfig (we added flock field) |
+| `scripts/start.sh` | Startup script (activates conda, validates integrated framework path) |
 | `scripts/verify_setup.sh` | Pre-flight check for deps, workspace, API keys |
 
 ---

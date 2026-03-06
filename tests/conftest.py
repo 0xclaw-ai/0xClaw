@@ -10,8 +10,11 @@ import pytest
 @pytest.fixture(scope="session", autouse=True)
 def _add_repo_root() -> None:
     root = Path(__file__).resolve().parents[1]
+    framework_root = root / "0xclaw" / "framework"
     if str(root) not in sys.path:
         sys.path.insert(0, str(root))
+    if str(framework_root) not in sys.path:
+        sys.path.insert(0, str(framework_root))
 
 
 @pytest.fixture
