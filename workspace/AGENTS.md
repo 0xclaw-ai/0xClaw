@@ -153,7 +153,7 @@ All inter-agent data lives in `hackathon/`:
 
 ---
 
-## Sponsor Integration Requirements
+<!-- ## Sponsor Integration Requirements
 
 These are non-negotiable for maximum scoring:
 
@@ -175,7 +175,7 @@ These are non-negotiable for maximum scoring:
 
 **Other confirmed sponsors** (Silver: The Compression Company, Animoca Brands, Lovable, SuperCell;
 Gold: Sierra.ai, Z.ai, Cantor8) — integrate where relevant to the chosen project idea.
-ManusAI is a co-host/partner (not a sponsor) but their autonomous agent platform is very relevant.
+ManusAI is a co-host/partner (not a sponsor) but their autonomous agent platform is very relevant. -->
 
 ---
 

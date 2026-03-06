@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from loguru import logger
+from dotenv import load_dotenv
 from rich.console import Console
 from rich.markdown import Markdown
 from rich.panel import Panel
@@ -42,6 +43,7 @@ from orchestration.state import OrchestratorStateMachine, PipelineStateStore
 from orchestration.write_guard import build_phase_write_guard, install_phase_write_guards
 from tools.virtuals_tool import VirtualsTool
 from tools.unibase_tool import UnibaseTool
+from observability.anyway import init_anyway_from_env, workflow_span
 
 # ── globals ────────────────────────────────────────────────────────────────────
 console = Console()
@@ -146,7 +148,7 @@ def _print_banner(provider: str, model: str) -> None:
 
 # ── config ─────────────────────────────────────────────────────────────────────
 def _load_config() -> Config:
-    """Load config.json, substituting env vars silently. Fails fast for FLOCK_API_KEY."""
+    """Load config.json with env substitution and provider-aware key validation."""
     if not CONFIG_PATH.exists():
         console.print(f"[red]Config not found:[/red] {CONFIG_PATH}")
         console.print("[dim]Run:[/dim] cp .env.example .env")
@@ -160,17 +162,29 @@ def _load_config() -> Config:
     raw = re.sub(r"\$\{([^}]+)\}", _substitute, raw)
     data = json.loads(raw)
 
-    # Fail fast: FLOCK_API_KEY is the only required key
-    if not data.get("providers", {}).get("flock", {}).get("apiKey", "").strip():
-        console.print("[red bold]✗ FLOCK_API_KEY is not set.[/red bold]")
-        console.print(
-            "  [dim]Get your key at[/dim] "
-            "[cyan link=https://platform.flock.io]https://platform.flock.io[/cyan]"
-        )
+    data.setdefault("agents", {}).setdefault("defaults", {})["workspace"] = str(WORKSPACE)
+    config = Config.model_validate(data)
+
+    model = config.agents.defaults.model
+    provider_name = config.get_provider_name(model) or config.agents.defaults.provider
+    provider_cfg = config.get_provider(model)
+    if not provider_cfg or not (provider_cfg.api_key or "").strip():
+        key_hints: dict[str, tuple[str, str]] = {
+            "flock": ("FLOCK_API_KEY", "https://platform.flock.io"),
+            "zhipu": ("ZAI_API_KEY", "https://open.bigmodel.cn"),
+            "openrouter": ("OPENROUTER_API_KEY", "https://openrouter.ai/keys"),
+            "deepseek": ("DEEPSEEK_API_KEY", "https://platform.deepseek.com"),
+            "openai": ("OPENAI_API_KEY", "https://platform.openai.com/api-keys"),
+            "anthropic": ("ANTHROPIC_API_KEY", "https://console.anthropic.com/settings/keys"),
+            "gemini": ("GEMINI_API_KEY", "https://aistudio.google.com/apikey"),
+        }
+        env_name, help_url = key_hints.get(provider_name, ("<PROVIDER_API_KEY>", ""))
+        console.print(f"[red bold]✗ {env_name} is not set for provider '{provider_name}'.[/red bold]")
+        if help_url:
+            console.print(f"  [dim]Get your key at[/dim] [cyan link={help_url}]{help_url}[/cyan]")
         sys.exit(1)
 
-    data.setdefault("agents", {}).setdefault("defaults", {})["workspace"] = str(WORKSPACE)
-    return Config.model_validate(data)
+    return config
 
 
 def _make_provider(config: Config):
@@ -326,6 +340,7 @@ async def run_interactive(config: Config) -> None:
 
     active_phase: str | None = None
     active_trace_id: str | None = None
+    init_anyway_from_env()
 
     # ── agent setup ────────────────────────────────────────────────────────────
     bus = MessageBus()
@@ -434,6 +449,35 @@ async def run_interactive(config: Config) -> None:
             console.print(f"[yellow]Timed out after {timeout_s}s.[/yellow]")
         return turn_response[0] if turn_response else ""
 
+    async def _send_and_wait_traced(
+        text: str,
+        *,
+        timeout_s: int = DEFAULT_PHASE_TIMEOUT_S,
+        command: str,
+        phase: str | None,
+        route_source: str | None = None,
+    ) -> str:
+        if command in {"/new", "/stop"}:
+            return await _send_and_wait(text, timeout_s=timeout_s)
+
+        # Only trace turns that actually produced a model response.
+        response = await _send_and_wait(text, timeout_s=timeout_s)
+        if not response:
+            return response
+
+        attrs = {
+            "request.command": command[:200],
+            "request.is_slash": command.startswith("/"),
+            "request.phase": phase,
+            "request.route_source": route_source,
+            "request.timeout_s": timeout_s,
+            "response.received": True,
+            "response.length": len(response),
+        }
+        with workflow_span("0xclaw.cli.turn", attrs):
+            pass
+        return response
+
     try:
         while True:
             user_input = await session.prompt_async(HTML("<b fg='#5bc2e7'>❯</b> "))
@@ -458,7 +502,13 @@ async def run_interactive(config: Config) -> None:
                     continue
 
                 if lower == "/stop":
-                    response = await _send_and_wait("/stop", timeout_s=30)
+                    response = await _send_and_wait_traced(
+                        "/stop",
+                        timeout_s=30,
+                        command=cmd,
+                        phase=active_phase,
+                        route_source="slash",
+                    )
                     if active_phase:
                         state_machine.checkpoint(active_phase, "cancelled", last_error="Cancelled by /stop")
                         active_phase = None
@@ -471,7 +521,13 @@ async def run_interactive(config: Config) -> None:
 
                 if lower in {"/new", "/reset"}:
                     console.print("[dim]Resetting session…[/dim]")
-                    response = await _send_and_wait("/new", timeout_s=30)
+                    response = await _send_and_wait_traced(
+                        "/new",
+                        timeout_s=30,
+                        command=cmd,
+                        phase=active_phase,
+                        route_source="slash",
+                    )
                     removed = _reset_hackathon_outputs() + _reset_workspace_runtime_outputs()
                     active_phase = None
                     active_trace_id = None
@@ -526,7 +582,13 @@ async def run_interactive(config: Config) -> None:
                         + json.dumps(envelope.to_dict(), ensure_ascii=False)
                     )
                     timeout_s = profile.timeout_s if profile else DEFAULT_PHASE_TIMEOUT_S
-                    response = await _send_and_wait(message, timeout_s=timeout_s)
+                    response = await _send_and_wait_traced(
+                        message,
+                        timeout_s=timeout_s,
+                        command=cmd,
+                        phase=route.phase,
+                        route_source=route.source,
+                    )
                     output = PHASE_OUTPUTS.get(route.phase)
                     if _output_exists(output):
                         state_machine.checkpoint(route.phase, "done")
@@ -596,7 +658,13 @@ async def run_interactive(config: Config) -> None:
                     + json.dumps(envelope.to_dict(), ensure_ascii=False)
                 )
                 timeout_s = profile.timeout_s if profile else DEFAULT_PHASE_TIMEOUT_S
-                response = await _send_and_wait(routed_input, timeout_s=timeout_s)
+                response = await _send_and_wait_traced(
+                    routed_input,
+                    timeout_s=timeout_s,
+                    command=cmd,
+                    phase=route.phase,
+                    route_source=route.source,
+                )
                 output = PHASE_OUTPUTS.get(route.phase)
                 if _output_exists(output):
                     state_machine.checkpoint(route.phase, "done")
@@ -605,7 +673,12 @@ async def run_interactive(config: Config) -> None:
                 active_phase = None
                 active_trace_id = None
             else:
-                response = await _send_and_wait(user_input)
+                response = await _send_and_wait_traced(
+                    user_input,
+                    command=cmd,
+                    phase=None,
+                    route_source="none",
+                )
 
             if response:
                 console.print()
@@ -626,6 +699,7 @@ def main() -> None:
     if "--logs" not in sys.argv:
         logger.remove()
 
+    load_dotenv(ROOT / ".env")
     config = _load_config()
 
     from nanobot.utils.helpers import sync_workspace_templates
