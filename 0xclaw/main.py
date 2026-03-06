@@ -163,9 +163,15 @@ def _print_banner(provider: str, model: str) -> None:
             expand=False,
         )
     )
+    _PROVIDER_DISPLAY = {
+        "flock": "FLock.io", "zhipu": "Z.ai", "openrouter": "OpenRouter",
+        "anthropic": "Anthropic", "openai": "OpenAI", "deepseek": "DeepSeek",
+        "gemini": "Gemini", "groq": "Groq",
+    }
+    display_provider = _PROVIDER_DISPLAY.get(provider, provider.title())
     console.print(
-        f"  [dim]Provider[/dim] [cyan]{provider}[/cyan]"
-        f"  [dim]·  Model[/dim] [cyan]{model}[/cyan]"
+        f"  [dim]Provider:[/dim] [cyan]{display_provider}[/cyan]"
+        f"  [dim]  Model:[/dim] [cyan]{model}[/cyan]"
     )
     console.print(
         "  [dim]Type[/dim] [bold cyan]/help[/bold cyan]"
