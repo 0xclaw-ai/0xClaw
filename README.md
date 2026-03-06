@@ -1,10 +1,10 @@
 <div align="center">
 
-<img src="0xclaw_logo.png" alt="0xClaw" width="130" />
+<img src="assets/0xclaw_logo.png" alt="0xClaw" width="130" />
 
 <br />
 
-<img src="banner.svg" alt="0xClaw" />
+<img src="assets/banner.svg" alt="0xClaw" />
 
 <br />
 
@@ -23,7 +23,7 @@
 
 ---
 
-## Setup
+## ⚙️ Setup
 
 ```bash
 conda create -n 0xclaw python=3.11 -y && conda activate 0xclaw
@@ -32,7 +32,7 @@ cp .env.example .env          # fill in FLOCK_API_KEY at minimum
 ./scripts/verify_setup.sh
 ```
 
-## Launch
+## 🚀 Launch
 
 ```bash
 conda activate 0xclaw
@@ -42,7 +42,7 @@ conda activate 0xclaw
 
 ---
 
-## Pipeline
+## 🔄 Pipeline
 
 The agent runs a 7-phase pipeline to produce a complete hackathon submission.
 Trigger any phase with natural language — routing is automatic.
@@ -69,7 +69,7 @@ run tests
 write the documentation
 ```
 
-## Commands
+## ⌨️ Commands
 
 <div align="center">
 <table>
@@ -86,7 +86,7 @@ Long-running phases hand off to the background after the first reply — you can
 
 ---
 
-## Models
+## 🧠 Models
 
 Primary inference via **FLock.io** · Fallback via **Z.AI**
 
@@ -98,13 +98,13 @@ Primary inference via **FLock.io** · Fallback via **Z.AI**
 </table>
 </div>
 
-## Observability
+## 📡 Observability
 
 Set `ANYWAY_API_KEY` to stream traces to Anyway. Token usage is shown live after every agent response.
 
 ---
 
-## Sponsors
+## 🏆 Sponsors
 
 <div align="center">
 <table>
