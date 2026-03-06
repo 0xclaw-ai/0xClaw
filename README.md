@@ -48,15 +48,16 @@ The agent runs a 7-phase pipeline to produce a complete hackathon submission.
 Trigger any phase with natural language — routing is automatic.
 
 <div align="center">
-| # | Phase | Output |
-|:-:|-------|--------|
-| 1 | **research** | `hackathon/context.json` |
-| 2 | **idea** | `hackathon/ideas.json` |
-| 3 | **selection** | `hackathon/selected_idea.json` |
-| 4 | **planning** | `hackathon/plan.md` · `tasks.json` |
-| 5 | **coding** | `hackathon/project/` |
-| 6 | **testing** | `hackathon/test_results.json` |
-| 7 | **doc** | `hackathon/submission/` |
+<table>
+<tr><th>#</th><th>Phase</th><th>Output</th></tr>
+<tr><td>1</td><td><b>research</b></td><td><code>hackathon/context.json</code></td></tr>
+<tr><td>2</td><td><b>idea</b></td><td><code>hackathon/ideas.json</code></td></tr>
+<tr><td>3</td><td><b>selection</b></td><td><code>hackathon/selected_idea.json</code></td></tr>
+<tr><td>4</td><td><b>planning</b></td><td><code>hackathon/plan.md</code> · <code>tasks.json</code></td></tr>
+<tr><td>5</td><td><b>coding</b></td><td><code>hackathon/project/</code></td></tr>
+<tr><td>6</td><td><b>testing</b></td><td><code>hackathon/test_results.json</code></td></tr>
+<tr><td>7</td><td><b>doc</b></td><td><code>hackathon/submission/</code></td></tr>
+</table>
 </div>
 
 ```
@@ -71,14 +72,14 @@ write the documentation
 ## Commands
 
 <div align="center">
-| Command | |
-|---------|--|
-| `/status` | Pipeline progress + session token usage |
-| `/resume` | Resume from last checkpoint |
-| `/redo <phase>` | Reset phase and all downstream, then re-run |
-| `/new` | Clear all outputs, fresh start |
-| `/stop` | Cancel running task |
-| `/help` | Show all commands |
+<table>
+<tr><td><code>/status</code></td><td>Pipeline progress + session token usage</td></tr>
+<tr><td><code>/resume</code></td><td>Resume from last checkpoint</td></tr>
+<tr><td><code>/redo &lt;phase&gt;</code></td><td>Reset phase and all downstream, then re-run</td></tr>
+<tr><td><code>/new</code></td><td>Clear all outputs, fresh start</td></tr>
+<tr><td><code>/stop</code></td><td>Cancel running task</td></tr>
+<tr><td><code>/help</code></td><td>Show all commands</td></tr>
+</table>
 </div>
 
 Long-running phases hand off to the background after the first reply — you can keep chatting while work continues.
@@ -90,12 +91,11 @@ Long-running phases hand off to the background after the first reply — you can
 Primary inference via **FLock.io** · Fallback via **Z.AI**
 
 <div align="center">
-
-| Phases | Model | Context |
-|--------|-------|---------|
-| research · idea · selection · doc | `minimax-m2.1` | 196k |
-| planning · coding · testing | `minimax-m2.5` | 205k |
-
+<table>
+<tr><th>Phases</th><th>Model</th><th>Context</th></tr>
+<tr><td>research · idea · selection · doc</td><td><code>minimax-m2.1</code></td><td>196k</td></tr>
+<tr><td>planning · coding · testing</td><td><code>minimax-m2.5</code></td><td>205k</td></tr>
+</table>
 </div>
 
 ## Observability
@@ -107,13 +107,11 @@ Set `ANYWAY_API_KEY` to stream traces to Anyway. Token usage is shown live after
 ## Sponsors
 
 <div align="center">
-
-| | |
-|:--|:--|
-| **Gold** | FLock.io · Z.AI · Sierra.ai · Cantor8 · BGA |
-| **Silver** | Lovable · SuperCell · Animoca Brands · Anyway · The Compression Company |
-| **Bronze** | Virtuals Protocol · Unibase |
-
+<table>
+<tr><td><b>Gold</b></td><td>FLock.io · Z.AI · Sierra.ai · Cantor8 · BGA</td></tr>
+<tr><td><b>Silver</b></td><td>Lovable · SuperCell · Animoca Brands · Anyway · The Compression Company</td></tr>
+<tr><td><b>Bronze</b></td><td>Virtuals Protocol · Unibase</td></tr>
+</table>
 </div>
 
 ---
