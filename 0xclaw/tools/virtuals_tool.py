@@ -1,7 +1,7 @@
-"""Virtual Protocol GAME SDK tool for nanobot.
+"""Virtual Protocol GAME SDK tool for 0xClaw.
 
 Registers an on-chain agent identity via the Virtuals GAME API and exposes
-it as a nanobot tool so 0xClaw can mint agent identities for the generated
+it as a tool so 0xClaw can mint agent identities for the generated
 project.
 """
 
@@ -11,7 +11,7 @@ import json
 import os
 from typing import Any
 
-from nanobot.agent.tools.base import Tool
+from runtime.agent.tools.base import Tool
 
 
 class VirtualsTool(Tool):

@@ -11,16 +11,15 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 ROOT = Path(__file__).parent.parent
-sys.path.insert(0, str(ROOT / "0xclaw" / "framework"))
 sys.path.insert(0, str(ROOT / "0xclaw"))
-from nanobot.agent.loop import AgentLoop
-from nanobot.bus.events import InboundMessage
-from nanobot.bus.queue import MessageBus
-from nanobot.config.schema import Config
-from nanobot.providers.custom_provider import CustomProvider
-from nanobot.providers.litellm_provider import LiteLLMProvider
-from nanobot.session.manager import SessionManager
-from nanobot.utils.helpers import sync_workspace_templates
+from runtime.agent.loop import AgentLoop
+from runtime.bus.events import InboundMessage
+from runtime.bus.queue import MessageBus
+from runtime.config.schema import Config
+from runtime.providers.custom_provider import CustomProvider
+from runtime.providers.litellm_provider import LiteLLMProvider
+from runtime.session.manager import SessionManager
+from runtime.utils.helpers import sync_workspace_templates
 from orchestration.contracts import ArtifactMeta, Envelope, wrap_artifact
 from orchestration.model_profiles import MetricsLogger, ModelProfileResolver
 from orchestration.router import SkillRouter

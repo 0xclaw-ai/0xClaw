@@ -26,14 +26,14 @@ from rich import box as rich_box
 ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT / "0xclaw" / "framework"))
 
-from nanobot.agent.loop import AgentLoop
-from nanobot.bus.events import InboundMessage
-from nanobot.bus.queue import MessageBus
-from nanobot.config.schema import Config
-from nanobot.cron.service import CronService
-from nanobot.providers.litellm_provider import LiteLLMProvider
-from nanobot.providers.custom_provider import CustomProvider
-from nanobot.session.manager import SessionManager
+from runtime.agent.loop import AgentLoop
+from runtime.bus.events import InboundMessage
+from runtime.bus.queue import MessageBus
+from runtime.config.schema import Config
+from runtime.cron.service import CronService
+from runtime.providers.litellm_provider import LiteLLMProvider
+from runtime.providers.custom_provider import CustomProvider
+from runtime.session.manager import SessionManager
 
 sys.path.insert(0, str(Path(__file__).parent))
 from orchestration.contracts import Envelope
@@ -328,7 +328,7 @@ def _is_spawn_started_message(text: str) -> bool:
 
 def _make_tracking_provider(config: Config, counter: TokenCounter):
     """Return a provider that intercepts every LLM response to count tokens."""
-    from nanobot.providers.base import LLMProvider, LLMResponse
+    from runtime.providers.base import LLMProvider, LLMResponse
 
     inner = _make_provider(config)
 
@@ -932,7 +932,7 @@ def main() -> None:
     load_dotenv(ROOT / ".env")
     config = _load_config()
 
-    from nanobot.utils.helpers import sync_workspace_templates
+    from runtime.utils.helpers import sync_workspace_templates
     sync_workspace_templates(WORKSPACE)
 
     asyncio.run(run_interactive(config))

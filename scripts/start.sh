@@ -43,9 +43,9 @@ if [[ ${#MISSING[@]} -gt 0 ]]; then
   echo ""
 fi
 
-# Verify integrated framework is present
-if [[ ! -d "$PROJECT_ROOT/0xclaw/framework/nanobot" ]]; then
-  echo "Error: integrated framework not found at 0xclaw/framework/nanobot"
+# Verify integrated runtime is present
+if [[ ! -d "$PROJECT_ROOT/0xclaw/runtime" ]]; then
+  echo "Error: integrated runtime not found at 0xclaw/runtime"
   exit 1
 fi
 

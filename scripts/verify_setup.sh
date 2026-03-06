@@ -21,12 +21,12 @@ fi
 echo "=== 0xClaw Setup Verification ==="
 echo ""
 
-# Check integrated framework import
-echo -n "integrated framework import... "
-if python -c "import sys; from pathlib import Path; root=Path('$PROJECT_ROOT'); sys.path.insert(0, str(root / '0xclaw' / 'framework')); import nanobot; print('OK v' + nanobot.__version__)" 2>/dev/null; then
+# Check integrated runtime import
+echo -n "integrated runtime import... "
+if python -c "import sys; from pathlib import Path; root=Path('$PROJECT_ROOT'); sys.path.insert(0, str(root / '0xclaw')); import runtime; print('OK v' + runtime.__version__)" 2>/dev/null; then
   :
 else
-  echo "FAIL — ensure 0xclaw/framework/nanobot exists and dependencies are installed"
+  echo "FAIL — ensure 0xclaw/runtime exists and dependencies are installed"
 fi
 
 # Check workspace files

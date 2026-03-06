@@ -1,7 +1,7 @@
 ---
 name: tester
 description: Test the generated project, validate sponsor integrations, and produce a quality report
-metadata: {"nanobot": {"always": false}}
+metadata: {"openclaw": {"always": false}}
 ---
 
 # Tester Agent Skill

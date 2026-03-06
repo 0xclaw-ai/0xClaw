@@ -1,7 +1,7 @@
 ---
 name: coder
 description: Implement a specific feature or component with production-grade Python code
-metadata: {"nanobot": {"always": false}}
+metadata: {"openclaw": {"always": false}}
 ---
 
 # Coder Agent Skill
