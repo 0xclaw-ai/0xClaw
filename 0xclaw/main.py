@@ -24,7 +24,7 @@ from rich import box as rich_box
 
 # ── internal deps ──────────────────────────────────────────────────────────────
 ROOT = Path(__file__).parent.parent
-sys.path.insert(0, str(ROOT / "0xclaw" / "framework"))
+sys.path.insert(0, str(Path(__file__).parent))  # makes `from runtime.xxx` work when run directly
 
 from runtime.agent.loop import AgentLoop
 from runtime.bus.events import InboundMessage
@@ -139,7 +139,7 @@ class TokenCounter:
 # ── banner ─────────────────────────────────────────────────────────────────────
 def _print_banner(provider: str, model: str) -> None:
     """Render the startup banner using Rich Panel (border always aligned)."""
-    logo = Text("\n".join(LOGO_LINES), style="bold cyan")
+    logo = Text("\n".join(LOGO_LINES), style="bold #fbbf24")
 
     meta = Text()
     meta.append("\n\n  Autonomous Hackathon Agent", style="white")
@@ -157,7 +157,7 @@ def _print_banner(provider: str, model: str) -> None:
     console.print(
         Panel(
             content,
-            border_style="cyan",
+            border_style="#7c3aed",
             box=rich_box.DOUBLE,
             padding=(0, 2),
             expand=False,
@@ -170,12 +170,12 @@ def _print_banner(provider: str, model: str) -> None:
     }
     display_provider = _PROVIDER_DISPLAY.get(provider, provider.title())
     console.print(
-        f"  [dim]Provider:[/dim] [cyan]{display_provider}[/cyan]"
-        f"  [dim]  Model:[/dim] [cyan]{model}[/cyan]"
+        f"  [dim]Provider:[/dim] [#fbbf24]{display_provider}[/#fbbf24]"
+        f"  [dim]  Model:[/dim] [#fbbf24]{model}[/#fbbf24]"
     )
     console.print(
-        "  [dim]Type[/dim] [bold cyan]/help[/bold cyan]"
-        " [dim]for commands  ·  [/dim][bold cyan]Tab[/bold cyan]"
+        "  [dim]Type[/dim] [bold #fbbf24]/help[/bold #fbbf24]"
+        " [dim]for commands  ·  [/dim][bold #fbbf24]Tab[/bold #fbbf24]"
         "[dim] to autocomplete[/dim]\n"
     )
 
@@ -244,23 +244,23 @@ def _make_provider(config: Config):
 # ── slash command UI helpers ───────────────────────────────────────────────────
 def _show_help() -> None:
     t = Table(box=rich_box.SIMPLE, show_header=False, padding=(0, 2))
-    t.add_column("cmd", style="bold cyan", no_wrap=True)
+    t.add_column("cmd", style="bold #fbbf24", no_wrap=True)
     t.add_column("desc", style="dim")
     for cmd, desc in SLASH_COMMANDS.items():
         t.add_row(cmd, desc)
     console.print(
-        Panel(t, title="[cyan]Commands[/cyan]", border_style="dim cyan", padding=(0, 1))
+        Panel(t, title="[#fbbf24]Commands[/#fbbf24]", border_style="#7c3aed", padding=(0, 1))
     )
 
 
 
 def _show_pipeline_status(state_store: PipelineStateStore) -> None:
     STATUS_STYLE = {
-        "done":      ("[green]✓[/green]", "done",     "green"),
-        "running":   ("[cyan]●[/cyan]",   "running",  "cyan"),
-        "failed":    ("[red]✗[/red]",     "failed",   "red"),
-        "cancelled": ("[yellow]–[/yellow]","cancelled","yellow"),
-        "pending":   ("[dim]○[/dim]",     "pending",  "dim"),
+        "done":      ("[green]✓[/green]",        "done",      "green"),
+        "running":   ("[#7c3aed]●[/#7c3aed]", "running",   "#7c3aed"),
+        "failed":    ("[red]✗[/red]",          "failed",    "red"),
+        "cancelled": ("[yellow]–[/yellow]",    "cancelled", "yellow"),
+        "pending":   ("[dim]○[/dim]",          "pending",   "dim"),
     }
     try:
         state = state_store.load()
@@ -287,8 +287,8 @@ def _show_pipeline_status(state_store: PipelineStateStore) -> None:
     console.print(
         Panel(
             t,
-            title=f"[cyan]Pipeline[/cyan]  [dim]{done_count}/{total} phases done[/dim]",
-            border_style="dim cyan",
+            title=f"[#fbbf24]Pipeline[/#fbbf24]  [dim]{done_count}/{total} phases done[/dim]",
+            border_style="#7c3aed",
             padding=(0, 1),
         )
     )
@@ -427,15 +427,15 @@ async def run_interactive(config: Config) -> None:
             return get_line
 
     prompt_style = Style.from_dict({
-        # Slash command input highlight
-        "slash": "#5bc2e7 bold",
-        # Completion dropdown
-        "completion-menu.completion":              "bg:#111827 #7ec8e3",
-        "completion-menu.completion.current":      "bg:#1e3a5f bold #ffffff",
-        "completion-menu.meta.completion":         "bg:#111827 #4b5563",
-        "completion-menu.meta.completion.current": "bg:#1e3a5f #9ca3af",
-        "scrollbar.background":                    "bg:#111827",
-        "scrollbar.button":                        "bg:#1e3a5f",
+        # Slash command input highlight — gold
+        "slash": "#fbbf24 bold",
+        # Completion dropdown — dark purple theme
+        "completion-menu.completion":              "bg:#1a0a2e #a78bfa",
+        "completion-menu.completion.current":      "bg:#7c3aed bold #fbbf24",
+        "completion-menu.meta.completion":         "bg:#1a0a2e #6b7280",
+        "completion-menu.meta.completion.current": "bg:#7c3aed #e5e7eb",
+        "scrollbar.background":                    "bg:#1a0a2e",
+        "scrollbar.button":                        "bg:#7c3aed",
     })
 
     active_phase: str | None = None
@@ -526,7 +526,7 @@ async def run_interactive(config: Config) -> None:
                         turn_done.set()
                 elif msg.content:
                     console.print()
-                    console.print("[bold cyan]🦀  0xClaw[/bold cyan]")
+                    console.print("[bold #fbbf24]🦀  0xClaw[/bold #fbbf24]")
                     console.print(Markdown(msg.content))
                     console.print()
             except asyncio.TimeoutError:
@@ -548,8 +548,8 @@ async def run_interactive(config: Config) -> None:
                 bg_phase = None
                 bg_trace_id = None
                 console.print(
-                    f"\n[bold green]✓[/bold green]  Phase [cyan]{finished}[/cyan] complete"
-                    " — type [bold cyan]/resume[/bold cyan] to continue.\n"
+                    f"\n[bold green]✓[/bold green]  Phase [#7c3aed]{finished}[/#7c3aed] complete"
+                    " — type [bold #fbbf24]/resume[/bold #fbbf24] to continue.\n"
                 )
 
     consume_task = asyncio.create_task(_consume())
@@ -600,7 +600,7 @@ async def run_interactive(config: Config) -> None:
 
     try:
         while True:
-            user_input = await session.prompt_async(HTML("<b fg='#5bc2e7'>❯</b> "))
+            user_input = await session.prompt_async(HTML("<b fg='#fbbf24'>❯</b> "))
             cmd = user_input.strip()
             if not cmd:
                 continue
@@ -656,7 +656,7 @@ async def run_interactive(config: Config) -> None:
                         console.print("[yellow]Usage:[/yellow] /redo <phase-name-or-number>")
                         console.print(
                             "  Phases: "
-                            + "  ".join(f"[dim]{i + 1}.[/dim][cyan]{p}[/cyan]" for i, p in enumerate(PHASES_LIST))
+                            + "  ".join(f"[dim]{i + 1}.[/dim][#7c3aed]{p}[/#7c3aed]" for i, p in enumerate(PHASES_LIST))
                         )
                         continue
                     reset = _reset_phase_and_downstream(target_phase, state_store)
@@ -725,7 +725,7 @@ async def run_interactive(config: Config) -> None:
                         active_trace_id = None
                     if response:
                         console.print()
-                        console.print("[bold cyan]🦀  0xClaw[/bold cyan]")
+                        console.print("[bold #fbbf24]🦀  0xClaw[/bold #fbbf24]")
                         console.print(Markdown(response))
                         tok = token_counter.fmt()
                         if tok:
@@ -815,7 +815,7 @@ async def run_interactive(config: Config) -> None:
                         active_trace_id = None
                     if response:
                         console.print()
-                        console.print("[bold cyan]🦀  0xClaw[/bold cyan]")
+                        console.print("[bold #fbbf24]🦀  0xClaw[/bold #fbbf24]")
                         console.print(Markdown(response))
                         tok = token_counter.fmt()
                         if tok:
@@ -825,8 +825,8 @@ async def run_interactive(config: Config) -> None:
 
                 # unknown slash command — show hint
                 console.print(
-                    f"[yellow]Unknown command[/yellow] [cyan]{cmd}[/cyan]  "
-                    "[dim]— type[/dim] [bold cyan]/help[/bold cyan] [dim]to see all commands[/dim]"
+                    f"[yellow]Unknown command[/yellow] [#7c3aed]{cmd}[/#7c3aed]  "
+                    "[dim]— type[/dim] [bold #fbbf24]/help[/bold #fbbf24] [dim]to see all commands[/dim]"
                 )
                 continue
 
@@ -834,13 +834,13 @@ async def run_interactive(config: Config) -> None:
             route = router.route(user_input)
             if route.phase:
                 if bg_phase == route.phase:
-                    console.print(f"[dim]Phase [cyan]{bg_phase}[/cyan] is already running in the background.[/dim]")
+                    console.print(f"[dim]Phase [#7c3aed]{bg_phase}[/#7c3aed] is already running in the background.[/dim]")
                     continue
                 check = state_machine.validate_phase_entry(route.phase)
                 if not check.ok:
                     if bg_phase:
                         console.print(
-                            f"[yellow]Phase [cyan]{bg_phase}[/cyan] is running — "
+                            f"[yellow]Phase [#7c3aed]{bg_phase}[/#7c3aed] is running — "
                             f"you'll be notified when it's done.[/yellow]"
                         )
                     else:
@@ -908,7 +908,7 @@ async def run_interactive(config: Config) -> None:
 
             if response:
                 console.print()
-                console.print("[bold cyan]🦀  0xClaw[/bold cyan]")
+                console.print("[bold #fbbf24]🦀  0xClaw[/bold #fbbf24]")
                 console.print(Markdown(response))
                 tok = token_counter.fmt()
                 if tok:

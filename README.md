@@ -104,12 +104,27 @@ Set `ANYWAY_API_KEY` to stream traces to Anyway. Token usage is shown live after
 
 ---
 
+## 💬 Channels
+
+The runtime has built-in support for 10 messaging platforms. Enable any via `config.json` + one env var:
+
+<div align="center">
+<table>
+<tr><td><b>Telegram</b></td><td><b>Discord</b></td><td><b>Slack</b></td><td><b>Email</b></td><td><b>Feishu</b></td></tr>
+<tr><td><b>DingTalk</b></td><td><b>Matrix</b></td><td><b>WeChat Work</b></td><td><b>QQ</b></td><td><b>WhatsApp</b></td></tr>
+</table>
+</div>
+
+Telegram uses long polling — no public IP or webhook required.
+
+---
+
 ## 🏆 Sponsors
 
 <div align="center">
 <table>
-<tr><td><b>Gold</b></td><td>FLock.io · Z.AI · Sierra.ai · Cantor8 · BGA</td></tr>
-<tr><td><b>Silver</b></td><td>Lovable · SuperCell · Animoca Brands · Anyway · The Compression Company</td></tr>
+<tr><td><b>Gold</b></td><td>FLock.io · Z.AI · Sierra.ai · Cantor8</td></tr>
+<tr><td><b>Silver</b></td><td>Lovable · SuperCell · Animoca Brands · Anyway · The Compression Company · AfterQuery</td></tr>
 <tr><td><b>Bronze</b></td><td>Virtuals Protocol · Unibase</td></tr>
 </table>
 </div>
@@ -117,5 +132,5 @@ Set `ANYWAY_API_KEY` to stream traces to Anyway. Token usage is shown live after
 ---
 
 <div align="center">
-<sub>Built for <a href="https://dorahacks.io/hackathon/1985">UK AI Agent Hackathon EP4</a> in collaboration with OpenClaw · Runtime powered by <a href="https://github.com/HKUDS/nanobot">nanobot</a></sub>
+<sub>Built for <a href="https://dorahacks.io/hackathon/1985">UK AI Agent Hackathon EP4</a> in collaboration with OpenClaw · Powered by the 0xClaw Agent Runtime</sub>
 </div>
