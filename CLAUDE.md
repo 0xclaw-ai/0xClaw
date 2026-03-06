@@ -200,12 +200,12 @@ when no model-level override is active.
 
 | Command | Effect |
 |---------|--------|
-| `/help` | List all slash commands |
-| `/new` or `/reset` | Fresh session — clears hackathon runtime outputs and workspace session |
+| `/status` | Show pipeline phase progress (which phases are done/running/failed) |
 | `/resume` | Resume from last pipeline checkpoint (reads `pipeline_state.json`) |
+| `/new` | Reset session — clears all hackathon runtime outputs |
 | `/stop` | Cancel the currently running sub-agent task |
-| `/status` | Show active provider, model, and session info |
-| `/exit` or `/quit` | Exit the CLI |
+| `/exit` | Exit the CLI |
+| `/help` | Show this list |
 
 Phase commands are free-form natural language routed by `SkillRouter`. Each phase invocation
 wraps the input in an `Envelope` and sends it to the `AgentLoop` with a per-phase timeout from

@@ -75,7 +75,7 @@ def test_main_phase_wait_guard_for_spawn_started():
 
 def test_main_new_clears_session_and_hackathon_outputs():
     content = Path("0xclaw/main.py").read_text(encoding="utf-8")
-    assert '"/new", "/reset"' in content or '"/reset"' in content
+    assert 'lower == "/new"' in content
     assert '_send_and_wait_traced(' in content
     assert "_reset_hackathon_outputs()" in content
     assert "_reset_workspace_runtime_outputs()" in content

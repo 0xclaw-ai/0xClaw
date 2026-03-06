@@ -97,14 +97,12 @@ LOGO_LINES = [
 
 # ── slash commands ─────────────────────────────────────────────────────────────
 SLASH_COMMANDS: dict[str, str] = {
-    "/help":   "Show all available commands",
-    "/new":    "Start a fresh conversation",
-    "/reset":  "Alias for /new",
-    "/resume": "Resume from the latest pipeline checkpoint",
+    "/status": "Show pipeline progress",
+    "/resume": "Resume from the latest checkpoint",
+    "/new":    "Reset session and clear all pipeline outputs",
     "/stop":   "Cancel the current running task",
-    "/status": "Show provider and model information",
     "/exit":   "Exit 0xClaw",
-    "/quit":   "Exit 0xClaw",
+    "/help":   "Show this help",
 }
 
 
@@ -219,17 +217,44 @@ def _show_help() -> None:
     )
 
 
-def _show_status(config: Config) -> None:
-    t = Table(box=None, show_header=False, padding=(0, 2))
-    t.add_column("key", style="dim", no_wrap=True)
-    t.add_column("val", style="cyan")
-    t.add_row("Provider",    config.agents.defaults.provider)
-    t.add_row("Model",       config.agents.defaults.model)
-    t.add_row("Max tokens",  str(config.agents.defaults.max_tokens))
-    t.add_row("Temperature", str(config.agents.defaults.temperature))
-    t.add_row("Workspace",   str(WORKSPACE))
+
+def _show_pipeline_status(state_store: PipelineStateStore) -> None:
+    STATUS_STYLE = {
+        "done":      ("[green]✓[/green]", "done",     "green"),
+        "running":   ("[cyan]●[/cyan]",   "running",  "cyan"),
+        "failed":    ("[red]✗[/red]",     "failed",   "red"),
+        "cancelled": ("[yellow]–[/yellow]","cancelled","yellow"),
+        "pending":   ("[dim]○[/dim]",     "pending",  "dim"),
+    }
+    try:
+        state = state_store.load()
+    except Exception:
+        console.print("[dim]No pipeline state found. Run a phase to begin.[/dim]")
+        return
+
+    rows = {row["name"]: row for row in state["phases"]}
+    done_count = sum(1 for r in rows.values() if r["status"] == "done")
+    total = len(PHASE_OUTPUTS)
+
+    t = Table(box=rich_box.SIMPLE, show_header=False, padding=(0, 1))
+    t.add_column("n",      style="dim",  no_wrap=True, width=2)
+    t.add_column("phase",  no_wrap=True, width=10)
+    t.add_column("icon",   no_wrap=True, width=3)
+    t.add_column("status", no_wrap=True, width=10)
+
+    for i, phase in enumerate(PHASE_OUTPUTS, 1):
+        row = rows.get(phase, {"status": "pending"})
+        status = row.get("status", "pending")
+        icon, label, _ = STATUS_STYLE.get(status, STATUS_STYLE["pending"])
+        t.add_row(str(i), phase, icon, f"[{_[2]}]{label}[/{_[2]}]")
+
     console.print(
-        Panel(t, title="[cyan]Status[/cyan]", border_style="dim cyan", padding=(0, 1))
+        Panel(
+            t,
+            title=f"[cyan]Pipeline[/cyan]  [dim]{done_count}/{total} phases done[/dim]",
+            border_style="dim cyan",
+            padding=(0, 1),
+        )
     )
 
 
@@ -340,6 +365,8 @@ async def run_interactive(config: Config) -> None:
 
     active_phase: str | None = None
     active_trace_id: str | None = None
+    bg_phase: str | None = None      # phase handed off to background monitor
+    bg_trace_id: str | None = None
     init_anyway_from_env()
 
     # ── agent setup ────────────────────────────────────────────────────────────
@@ -374,7 +401,7 @@ async def run_interactive(config: Config) -> None:
     write_guard = build_phase_write_guard(
         workspace=WORKSPACE,
         state_machine=state_machine,
-        get_phase=lambda: active_phase,
+        get_phase=lambda: active_phase or bg_phase,
     )
     install_phase_write_guards(agent.tools, write_guard)
     agent.subagents.set_write_guard(write_guard)
@@ -405,23 +432,21 @@ async def run_interactive(config: Config) -> None:
     turn_response: list[str] = []
 
     async def _consume():
+        """Drain the outbound bus. Releases prompt as soon as agent replies."""
         while True:
             try:
                 msg = await asyncio.wait_for(bus.consume_outbound(), timeout=1.0)
                 if msg.metadata.get("_progress"):
                     console.print(f"  [dim]↳ {msg.content}[/dim]")
                 elif not turn_done.is_set():
-                    if msg.content:
+                    if _is_spawn_started_message(msg.content or ""):
+                        console.print(f"  [dim]↳ {msg.content}[/dim]")
+                    elif msg.content:
+                        # Agent sent a substantive reply — release the prompt immediately.
+                        # Background phase (if any) is monitored by _monitor_background.
                         turn_response.append(msg.content)
-                    if active_phase:
-                        output = PHASE_OUTPUTS.get(active_phase)
-                        if _output_exists(output):
-                            turn_done.set()
-                        elif msg.content and _is_spawn_started_message(msg.content):
-                            console.print(f"  [dim]↳ {msg.content}[/dim]")
-                        elif output is None:
-                            turn_done.set()
-                    else:
+                        turn_done.set()
+                    elif active_phase is None:
                         turn_done.set()
                 elif msg.content:
                     console.print()
@@ -433,7 +458,26 @@ async def run_interactive(config: Config) -> None:
             except asyncio.CancelledError:
                 break
 
+    async def _monitor_background() -> None:
+        """Poll for background phase output every 4 s; notify user on completion."""
+        nonlocal bg_phase, bg_trace_id
+        while True:
+            await asyncio.sleep(4)
+            if not bg_phase:
+                continue
+            output = PHASE_OUTPUTS.get(bg_phase)
+            if _output_exists(output):
+                state_machine.checkpoint(bg_phase, "done")
+                finished = bg_phase
+                bg_phase = None
+                bg_trace_id = None
+                console.print(
+                    f"\n[bold green]✓[/bold green]  Phase [cyan]{finished}[/cyan] complete"
+                    " — type [bold cyan]/resume[/bold cyan] to continue.\n"
+                )
+
     consume_task = asyncio.create_task(_consume())
+    monitor_task = asyncio.create_task(_monitor_background())
 
     async def _send_and_wait(text: str, *, timeout_s: int = DEFAULT_PHASE_TIMEOUT_S) -> str:
         turn_done.clear()
@@ -489,7 +533,7 @@ async def run_interactive(config: Config) -> None:
             if cmd.startswith("/"):
                 lower = cmd.lower().split()[0]
 
-                if lower in {"/exit", "/quit"}:
+                if lower == "/exit":
                     console.print("[yellow]Goodbye! 🦀[/yellow]")
                     break
 
@@ -498,7 +542,7 @@ async def run_interactive(config: Config) -> None:
                     continue
 
                 if lower == "/status":
-                    _show_status(config)
+                    _show_pipeline_status(state_store)
                     continue
 
                 if lower == "/stop":
@@ -519,7 +563,7 @@ async def run_interactive(config: Config) -> None:
                         console.print("[yellow]⏹  Stop signal sent.[/yellow]")
                     continue
 
-                if lower in {"/new", "/reset"}:
+                if lower == "/new":
                     console.print("[dim]Resetting session…[/dim]")
                     response = await _send_and_wait_traced(
                         "/new",
@@ -594,8 +638,9 @@ async def run_interactive(config: Config) -> None:
                         state_machine.checkpoint(route.phase, "done")
                         active_phase = None
                         active_trace_id = None
-                    elif active_phase:
-                        state_machine.checkpoint(route.phase, "failed", last_error="No expected output detected")
+                    else:
+                        bg_phase = active_phase
+                        bg_trace_id = active_trace_id
                         active_phase = None
                         active_trace_id = None
                     if response:
@@ -612,19 +657,23 @@ async def run_interactive(config: Config) -> None:
                 )
                 continue
 
-            # ── plain text exit ────────────────────────────────────────────────
-            if cmd.lower() in {"exit", "quit"}:
-                console.print("[yellow]Goodbye! 🦀[/yellow]")
-                break
-
             # ── route + state gate for normal inputs ───────────────────────────
             route = router.route(user_input)
             if route.phase:
+                if bg_phase == route.phase:
+                    console.print(f"[dim]Phase [cyan]{bg_phase}[/cyan] is already running in the background.[/dim]")
+                    continue
                 check = state_machine.validate_phase_entry(route.phase)
                 if not check.ok:
-                    console.print("[red]Phase blocked by state gate:[/red]")
-                    for err in check.errors:
-                        console.print(f"  - {err}")
+                    if bg_phase:
+                        console.print(
+                            f"[yellow]Phase [cyan]{bg_phase}[/cyan] is running — "
+                            f"you'll be notified when it's done.[/yellow]"
+                        )
+                    else:
+                        console.print("[red]Phase blocked:[/red]")
+                        for err in check.errors:
+                            console.print(f"  - {err}")
                     continue
 
                 profile = profile_resolver.resolve(route.phase)
@@ -668,10 +717,14 @@ async def run_interactive(config: Config) -> None:
                 output = PHASE_OUTPUTS.get(route.phase)
                 if _output_exists(output):
                     state_machine.checkpoint(route.phase, "done")
+                    active_phase = None
+                    active_trace_id = None
                 else:
-                    state_machine.checkpoint(route.phase, "failed", last_error="No expected output detected")
-                active_phase = None
-                active_trace_id = None
+                    # Sub-agent still running — hand off to background monitor.
+                    bg_phase = active_phase
+                    bg_trace_id = active_trace_id
+                    active_phase = None
+                    active_trace_id = None
             else:
                 response = await _send_and_wait_traced(
                     user_input,
@@ -689,7 +742,8 @@ async def run_interactive(config: Config) -> None:
     finally:
         agent.stop()
         consume_task.cancel()
-        await asyncio.gather(bus_task, consume_task, return_exceptions=True)
+        monitor_task.cancel()
+        await asyncio.gather(bus_task, consume_task, monitor_task, return_exceptions=True)
         await agent.close_mcp()
 
 

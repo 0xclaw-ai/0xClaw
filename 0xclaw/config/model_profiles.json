@@ -4,63 +4,63 @@
       "phase": "research",
       "provider": "flock",
       "model": "minimax-m2.1",
-      "max_tokens": 4096,
+      "max_tokens": 16384,
       "temperature": 0.2,
-      "timeout_s": 180,
+      "timeout_s": 300,
       "fallback": "doc"
     },
     {
       "phase": "idea",
       "provider": "flock",
       "model": "minimax-m2.1",
-      "max_tokens": 4096,
+      "max_tokens": 8192,
       "temperature": 0.4,
-      "timeout_s": 180,
+      "timeout_s": 240,
       "fallback": "doc"
     },
     {
       "phase": "selection",
       "provider": "flock",
       "model": "minimax-m2.1",
-      "max_tokens": 2048,
+      "max_tokens": 4096,
       "temperature": 0.1,
-      "timeout_s": 120,
+      "timeout_s": 180,
       "fallback": "doc"
     },
     {
       "phase": "planning",
       "provider": "flock",
       "model": "minimax-m2.5",
-      "max_tokens": 8192,
+      "max_tokens": 32768,
       "temperature": 0.2,
-      "timeout_s": 240,
+      "timeout_s": 420,
       "fallback": "research"
     },
     {
       "phase": "coding",
       "provider": "flock",
       "model": "minimax-m2.5",
-      "max_tokens": 16258,
+      "max_tokens": 65536,
       "temperature": 0.1,
-      "timeout_s": 300,
+      "timeout_s": 600,
       "fallback": "planning"
     },
     {
       "phase": "testing",
       "provider": "flock",
       "model": "minimax-m2.5",
-      "max_tokens": 4096,
+      "max_tokens": 16384,
       "temperature": 0.1,
-      "timeout_s": 240,
+      "timeout_s": 360,
       "fallback": "coding"
     },
     {
       "phase": "doc",
       "provider": "flock",
       "model": "minimax-m2.1",
-      "max_tokens": 8192,
+      "max_tokens": 16384,
       "temperature": 0.3,
-      "timeout_s": 180,
+      "timeout_s": 360,
       "fallback": null
     }
   ]
