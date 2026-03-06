@@ -43,10 +43,10 @@ if [[ ${#MISSING[@]} -gt 0 ]]; then
   echo ""
 fi
 
-# Install nanobot in dev mode if not already installed
-if ! python -c "import nanobot" 2>/dev/null; then
-  echo "Installing nanobot..."
-  pip install -e "$PROJECT_ROOT/nanobot" -q
+# Verify integrated framework is present
+if [[ ! -d "$PROJECT_ROOT/0xclaw/framework/nanobot" ]]; then
+  echo "Error: integrated framework not found at 0xclaw/framework/nanobot"
+  exit 1
 fi
 
 # Run 0xClaw

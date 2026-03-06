@@ -40,7 +40,7 @@ from pathlib import Path
 
 # ── Paths ──────────────────────────────────────────────────────────────────────
 ROOT = Path(__file__).parent.parent
-sys.path.insert(0, str(ROOT / "nanobot"))
+sys.path.insert(0, str(ROOT / "0xclaw" / "framework"))
 sys.path.insert(0, str(ROOT / "0xclaw"))
 sys.path.insert(0, str(ROOT / "scripts"))
 

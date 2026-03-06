@@ -23,7 +23,7 @@ from rich import box as rich_box
 
 # ── internal deps ──────────────────────────────────────────────────────────────
 ROOT = Path(__file__).parent.parent
-sys.path.insert(0, str(ROOT / "nanobot"))
+sys.path.insert(0, str(ROOT / "0xclaw" / "framework"))
 
 from nanobot.agent.loop import AgentLoop
 from nanobot.bus.events import InboundMessage
