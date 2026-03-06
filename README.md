@@ -47,6 +47,7 @@ conda activate 0xclaw
 The agent runs a 7-phase pipeline to produce a complete hackathon submission.
 Trigger any phase with natural language — routing is automatic.
 
+<div align="center">
 | # | Phase | Output |
 |:-:|-------|--------|
 | 1 | **research** | `hackathon/context.json` |
@@ -56,6 +57,7 @@ Trigger any phase with natural language — routing is automatic.
 | 5 | **coding** | `hackathon/project/` |
 | 6 | **testing** | `hackathon/test_results.json` |
 | 7 | **doc** | `hackathon/submission/` |
+</div>
 
 ```
 research the hackathon requirements
@@ -68,6 +70,7 @@ write the documentation
 
 ## Commands
 
+<div align="center">
 | Command | |
 |---------|--|
 | `/status` | Pipeline progress + session token usage |
@@ -76,6 +79,7 @@ write the documentation
 | `/new` | Clear all outputs, fresh start |
 | `/stop` | Cancel running task |
 | `/help` | Show all commands |
+</div>
 
 Long-running phases hand off to the background after the first reply — you can keep chatting while work continues.
 
@@ -85,10 +89,14 @@ Long-running phases hand off to the background after the first reply — you can
 
 Primary inference via **FLock.io** · Fallback via **Z.AI**
 
+<div align="center">
+
 | Phases | Model | Context |
 |--------|-------|---------|
 | research · idea · selection · doc | `minimax-m2.1` | 196k |
 | planning · coding · testing | `minimax-m2.5` | 205k |
+
+</div>
 
 ## Observability
 
