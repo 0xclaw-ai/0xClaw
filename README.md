@@ -1,22 +1,22 @@
 <div align="center">
 
-<img src="0xclaw_logo.png" alt="0xClaw" width="150" />
+<img src="0xclaw_logo.png" alt="0xClaw" width="130" />
 
-<pre>
-  ██████╗  ██╗  ██╗ ██████╗██╗      █████╗ ██╗    ██╗
- ██╔═████╗ ╚██╗██╔╝██╔════╝██║     ██╔══██╗██║    ██║
- ██║██╔██║  ╚███╔╝ ██║     ██║     ███████║██║ █╗ ██║
- ████╔╝██║  ██╔██╗ ██║     ██║     ██╔══██║██║███╗██║
- ╚██████╔╝ ██╔╝ ██╗╚██████╗███████╗██║  ██║╚███╔███╔╝
-  ╚═════╝  ╚═╝  ╚═╝ ╚═════╝╚══════╝╚═╝  ╚═╝ ╚══╝╚══╝
-</pre>
+<br />
+
+<img src="banner.svg" alt="0xClaw" />
+
+<br />
 
 **An AI agent that autonomously researches, plans, codes, tests, and submits a hackathon project.**
+
+<br />
 
 ![Python](https://img.shields.io/badge/Python-3.11-3776AB?style=flat-square&logo=python&logoColor=white)
 ![License](https://img.shields.io/badge/License-MIT-22c55e?style=flat-square)
 ![Tests](https://img.shields.io/badge/Tests-32%20passed-22c55e?style=flat-square)
-![Inference](https://img.shields.io/badge/Inference-FLock.io-7c3aed?style=flat-square)
+![FLock.io](https://img.shields.io/badge/Primary%20LLM-FLock.io-7c3aed?style=flat-square)
+![Z.AI](https://img.shields.io/badge/Fallback%20LLM-Z.AI-5b6cf9?style=flat-square)
 ![Tracing](https://img.shields.io/badge/Tracing-Anyway-0ea5e9?style=flat-square)
 
 </div>
@@ -29,7 +29,7 @@
 conda create -n 0xclaw python=3.11 -y && conda activate 0xclaw
 pip install -e .
 cp .env.example .env          # fill in FLOCK_API_KEY at minimum
-./scripts/verify_setup.sh     # confirm everything is working
+./scripts/verify_setup.sh
 ```
 
 ## Launch
@@ -45,7 +45,7 @@ conda activate 0xclaw
 ## Pipeline
 
 The agent runs a 7-phase pipeline to produce a complete hackathon submission.
-Trigger any phase in natural language — routing is automatic.
+Trigger any phase with natural language — routing is automatic.
 
 | # | Phase | Output |
 |:-:|-------|--------|
@@ -83,7 +83,7 @@ Long-running phases hand off to the background after the first reply — you can
 
 ## Models
 
-All inference via [FLock.io](https://flock.io).
+Primary inference via **FLock.io** · Fallback via **Z.AI**
 
 | Phases | Model | Context |
 |--------|-------|---------|
@@ -92,7 +92,7 @@ All inference via [FLock.io](https://flock.io).
 
 ## Observability
 
-Set `ANYWAY_API_KEY` to stream traces to [Anyway](https://anyway.mintlify.app). Token usage is shown live after every agent response.
+Set `ANYWAY_API_KEY` to stream traces to Anyway. Token usage is shown live after every agent response.
 
 ---
 
@@ -102,16 +102,14 @@ Set `ANYWAY_API_KEY` to stream traces to [Anyway](https://anyway.mintlify.app). 
 
 | | |
 |:--|:--|
-| **Gold** | FLock.io &nbsp;·&nbsp; Z.AI &nbsp;·&nbsp; Sierra.ai &nbsp;·&nbsp; Cantor8 &nbsp;·&nbsp; BGA |
-| **Silver** | Lovable &nbsp;·&nbsp; SuperCell &nbsp;·&nbsp; Animoca Brands &nbsp;·&nbsp; Anyway &nbsp;·&nbsp; The Compression Company |
-| **Bronze** | [Virtuals Protocol](https://virtuals.io) &nbsp;·&nbsp; [Unibase](https://unibase.io) |
+| **Gold** | FLock.io · Z.AI · Sierra.ai · Cantor8 · BGA |
+| **Silver** | Lovable · SuperCell · Animoca Brands · Anyway · The Compression Company |
+| **Bronze** | Virtuals Protocol · Unibase |
 
 </div>
 
 ---
 
 <div align="center">
-
-Built for [UK AI Agent Hackathon EP4](https://dorahacks.io/hackathon/1985) in collaboration with [OpenClaw](https://dorahacks.io/hackathon/1985). Runtime powered by [nanobot](https://github.com/HKUDS/nanobot).
-
+<sub>Built for <a href="https://dorahacks.io/hackathon/1985">UK AI Agent Hackathon EP4</a> in collaboration with OpenClaw · Runtime powered by <a href="https://github.com/HKUDS/nanobot">nanobot</a></sub>
 </div>
