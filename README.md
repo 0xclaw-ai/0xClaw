@@ -8,7 +8,7 @@
 
 <br />
 
-**An AI agent that autonomously researches, plans, codes, tests, and submits a hackathon project.**
+**Give it a hackathon URL. It researches, codes, and submits.**
 
 <br />
 
