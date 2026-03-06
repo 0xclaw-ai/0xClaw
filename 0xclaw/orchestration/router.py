@@ -81,11 +81,14 @@ def _keyword_matches(keyword: str, text: str) -> bool:
     """Match keyword against text.
 
     Multi-word keywords use simple substring matching.
-    Single-word keywords use word-boundary matching to avoid false positives
+    Single-word ASCII keywords use word-boundary matching to avoid false positives
     (e.g. 'idea' must not match 'selected_idea', 'implement' must not match
     'implementation').
+    Non-ASCII keywords (e.g. Chinese) use substring matching because Python's
+    word boundary only fires between word chars and non-word chars, and CJK
+    characters are all word chars — so boundaries never match inside CJK text.
     """
-    if " " in keyword:
+    if " " in keyword or not keyword.isascii():
         return keyword in text
     return bool(re.search(r"\b" + re.escape(keyword) + r"\b", text))
 
