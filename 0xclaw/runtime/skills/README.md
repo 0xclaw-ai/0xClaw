@@ -1,6 +1,6 @@
-# nanobot Skills
+# 0xClaw Runtime Skills
 
-This directory contains built-in skills that extend nanobot's capabilities.
+This directory contains built-in skills that extend the 0xClaw runtime's capabilities.
 
 ## Skill Format
 

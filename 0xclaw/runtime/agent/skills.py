@@ -170,7 +170,7 @@ class SkillsLoader:
         """Parse skill metadata JSON from frontmatter (supports openclaw and runtime keys)."""
         try:
             data = json.loads(raw)
-            return data.get("openclaw", data.get("runtime", {})) if isinstance(data, dict) else {}
+            return data.get("openclaw", data.get("runtime", data.get("nanobot", {}))) if isinstance(data, dict) else {}
         except (json.JSONDecodeError, TypeError):
             return {}
 
