@@ -45,7 +45,6 @@ conda activate 0xclaw
 0xclaw whatsapp login   # start WhatsApp bridge and scan QR
 ```
 
----
 
 ## 👾 Demo Video
 
