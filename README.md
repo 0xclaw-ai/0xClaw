@@ -47,6 +47,14 @@ conda activate 0xclaw
 
 ---
 
+## 👾 Demo Video
+
+<div align="center">
+  <a href="https://www.youtube.com/watch?v=jmamrAxRuec">
+    <img src="https://img.youtube.com/vi/jmamrAxRuec/maxresdefault.jpg" alt="0xClaw Demo Video" style="width:80%;">
+  </a>
+</div>
+
 ## 🔄 Pipeline
 
 The agent runs a 7-phase pipeline to produce a complete hackathon submission.
