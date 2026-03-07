@@ -134,5 +134,12 @@ Telegram uses long polling — no public IP or webhook required.
 ---
 
 <div align="center">
+
+<img src="assets/banner.svg" alt="0xClaw" width="330" />
+
+</div>
+
+<div align="center">
 <sub>Built for <a href="https://dorahacks.io/hackathon/1985">UK AI Agent Hackathon EP4</a> in collaboration with 🦞 <a href="https://github.com/openclaw/openclaw">OpenClaw</a>  · Thanks to 🐈 <a href="https://github.com/HKUDS/nanobot">NanoBot</a> Framework</sub>
 </div>
+
