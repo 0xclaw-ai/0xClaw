@@ -2,7 +2,7 @@
 
 <div align="center">
 
-<img src="assets/0xClaw_combine.png" alt="0xClaw" width="800" />
+<img src="assets/0xClaw_combine.png" alt="0xClaw" width="600" />
 
 <br />
 
