@@ -11,6 +11,7 @@ keywords = ["ai", "agent", "hackathon", "openclaw"]
 
 dependencies = [
     "nanobot-ai>=0.1.4",
+    "python-telegram-bot>=21.0,<23.0",
     "anyway-sdk>=0.0.6",
     "prompt-toolkit>=3.0.50,<4.0.0",
     "rich>=14.0.0,<15.0.0",

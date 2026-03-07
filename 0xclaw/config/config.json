@@ -27,6 +27,20 @@
       }
     }
   },
+  "channels": {
+    "whatsapp": {
+      "enabled": false,
+      "bridgeUrl": "ws://localhost:3001",
+      "bridgeToken": "${WHATSAPP_BRIDGE_TOKEN}",
+      "allowFrom": []
+    },
+    "telegram": {
+      "enabled": true,
+      "token": "${TELEGRAM_BOT_TOKEN}",
+      "allowFrom": [],
+      "replyToMessage": true
+    }
+  },
   "tools": {
     "exec": {
       "timeout": 120
