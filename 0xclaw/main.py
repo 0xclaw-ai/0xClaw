@@ -439,6 +439,7 @@ def _rewrite_bridge_branding(bridge_dir: Path) -> None:
         "join(homedir(), '.nanobot', 'whatsapp-auth')": "join(homedir(), '.0xclaw', 'whatsapp-auth')",
         "nanobot-whatsapp-bridge": "0xclaw-whatsapp-bridge",
         "🐈 nanobot WhatsApp Bridge": "🦀 0xClaw WhatsApp Bridge",
+        "🐈 0xClaw WhatsApp Bridge": "🦀 0xClaw WhatsApp Bridge",
     }
     targets = [
         bridge_dir / "package.json",
