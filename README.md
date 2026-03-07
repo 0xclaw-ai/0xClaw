@@ -116,12 +116,12 @@ Set `ANYWAY_API_KEY` to stream traces to Anyway. Token usage is shown live after
 
 ## 💬 Channels
 
-The runtime has built-in support for 10 messaging platforms. Enable any via `config.json` + one env var:
+The runtime has built-in support for 10 messaging platforms (2/10 now passed solid test). Enable any via `config.json` + one env var:
 
 <div align="center">
 <table>
-<tr><td><b>Telegram</b></td><td><b>Discord</b></td><td><b>Slack</b></td><td><b>Email</b></td><td><b>Feishu</b></td></tr>
-<tr><td><b>DingTalk</b></td><td><b>Matrix</b></td><td><b>WeChat Work</b></td><td><b>QQ</b></td><td><b>WhatsApp</b></td></tr>
+<tr><td>$\color{#25D366}{\textbf{Telegram}}$</td><td><b>Discord</b></td><td><b>Slack</b></td><td><b>Email</b></td><td><b>Feishu</b></td></tr>
+<tr><td><b>DingTalk</b></td><td><b>Matrix</b></td><td><b>WeChat Work</b></td><td><b>QQ</b></td><td>$\color{#25D366}{\textbf{WhatsApp}}$</td></tr>
 </table>
 </div>
 
