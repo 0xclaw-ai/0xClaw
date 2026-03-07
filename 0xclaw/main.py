@@ -7,6 +7,7 @@ import os
 import re
 import signal
 import shutil
+import subprocess
 import sys
 import time
 from dataclasses import dataclass, field
@@ -109,6 +110,18 @@ SLASH_COMMANDS: dict[str, str] = {
 
 PHASES_LIST = list(PHASE_OUTPUTS.keys())  # ordered pipeline phase names
 
+# ── shell passthrough suggestions (shown when user types !) ───────────────────
+SHELL_SUGGESTIONS: list[tuple[str, str]] = [
+    ("ls",                                         "list files in project root"),
+    ("ls -la",                                     "list all files with details"),
+    ("git status",                                 "git working tree status"),
+    ("git log --oneline -5",                       "last 5 commits"),
+    ("git diff",                                   "show unstaged changes"),
+    ("python -m pytest tests/ -q",                 "run test suite"),
+    ("cat workspace/hackathon/pipeline_state.json","pipeline phase state"),
+    ("pwd",                                        "current directory"),
+]
+
 
 # ── token tracking ─────────────────────────────────────────────────────────────
 @dataclass
@@ -174,8 +187,10 @@ def _print_banner(provider: str, model: str) -> None:
         f"  [dim]  Model:[/dim] [#fbbf24]{model}[/#fbbf24]"
     )
     console.print(
-        "  [dim]Type[/dim] [bold #fbbf24]/help[/bold #fbbf24]"
-        " [dim]for commands  ·  [/dim][bold #fbbf24]Tab[/bold #fbbf24]"
+        "  [dim]Type[/dim] [bold #fbbf24]?[/bold #fbbf24]"
+        " [dim]or[/dim] [bold #fbbf24]/help[/bold #fbbf24]"
+        " [dim]for commands  ·  [/dim][bold #fbbf24]![/bold #fbbf24][dim]<cmd>[/dim]"
+        " [dim]for shell  ·  [/dim][bold #fbbf24]Tab[/bold #fbbf24]"
         "[dim] to autocomplete[/dim]\n"
     )
 
@@ -248,6 +263,9 @@ def _show_help() -> None:
     t.add_column("desc", style="dim")
     for cmd, desc in SLASH_COMMANDS.items():
         t.add_row(cmd, desc)
+    t.add_row("", "")
+    t.add_row("?",       "Alias for /help")
+    t.add_row("!<cmd>",  "Run a shell command  (e.g. !ls  !git log  !pwd)")
     console.print(
         Panel(t, title="[#fbbf24]Commands[/#fbbf24]", border_style="#7c3aed", padding=(0, 1))
     )
@@ -395,16 +413,38 @@ def _reset_workspace_runtime_outputs() -> list[str]:
 # ── main interactive loop ──────────────────────────────────────────────────────
 async def run_interactive(config: Config) -> None:
     from prompt_toolkit import PromptSession
+    from prompt_toolkit.application import get_app
     from prompt_toolkit.formatted_text import HTML
     from prompt_toolkit.history import FileHistory
     from prompt_toolkit.completion import Completer, Completion
     from prompt_toolkit.lexers import Lexer
     from prompt_toolkit.styles import Style
 
-    # ── slash command completer ────────────────────────────────────────────────
+    # ── slash command + shell completer ───────────────────────────────────────
     class _SlashCompleter(Completer):
         def get_completions(self, document, complete_event):
             text = document.text_before_cursor.lstrip()
+
+            # ? → help
+            if text == "?":
+                yield Completion("?", start_position=-1, display="?", display_meta="Show help")
+                return
+
+            # !cmd → shell suggestions
+            if text.startswith("!"):
+                partial = text[1:]
+                for shell_cmd, desc in SHELL_SUGGESTIONS:
+                    if shell_cmd.startswith(partial):
+                        full = "!" + shell_cmd
+                        yield Completion(
+                            full,
+                            start_position=-len(text),
+                            display=full,
+                            display_meta=desc,
+                        )
+                return
+
+            # /cmd → slash commands
             if not text.startswith("/"):
                 return
             for cmd, desc in SLASH_COMMANDS.items():
@@ -416,19 +456,53 @@ async def run_interactive(config: Config) -> None:
                         display_meta=desc,
                     )
 
-    # ── syntax highlighter: cyan for /commands ─────────────────────────────────
+    # ── syntax highlighter: gold /cmd · green !shell · purple ? ───────────────
     class _SlashLexer(Lexer):
         def lex_document(self, document):
             def get_line(lineno):
                 line = document.text
                 if line.startswith("/"):
                     return [("class:slash", line)]
+                if line.startswith("!"):
+                    return [("class:shell", line)]
+                if line == "?":
+                    return [("class:help", line)]
                 return [("", line)]
             return get_line
 
+    # ── bottom toolbar — dynamically shows the current input mode ─────────────
+    def _toolbar():
+        try:
+            text = get_app().current_buffer.text
+        except Exception:
+            text = ""
+        if text.startswith("!"):
+            import html as _h
+            preview = _h.escape(text[1:45]) or "type a command…"
+            return HTML(
+                f'<b bg="#14532d" fg="#86efac"> $ SHELL </b>'
+                f'  <ansi fg="ansibrightgreen">{preview}</ansi>'
+                f'  <span fg="#4b5563">  Enter to run · Ctrl+C to cancel</span>'
+            )
+        if text == "?":
+            return HTML(
+                '<b bg="#1e1b4b" fg="#a78bfa"> ? HELP </b>'
+                '  <span fg="#6b7280">Show all commands and shortcuts</span>'
+            )
+        if text.startswith("/"):
+            return HTML(
+                '<b bg="#1a0a2e" fg="#fbbf24"> / CMD </b>'
+                '  <span fg="#6b7280">Agent command · Tab to autocomplete</span>'
+            )
+        return HTML(
+            '<span fg="#374151">  ? help  ·  !cmd shell  ·  /command agent  ·  or just chat</span>'
+        )
+
     prompt_style = Style.from_dict({
-        # Slash command input highlight — gold
-        "slash": "#fbbf24 bold",
+        # Input highlights
+        "slash":  "#fbbf24 bold",   # /commands — gold
+        "shell":  "#22c55e bold",   # !shell    — green
+        "help":   "#a78bfa bold",   # ?         — purple
         # Completion dropdown — dark purple theme
         "completion-menu.completion":              "bg:#1a0a2e #a78bfa",
         "completion-menu.completion.current":      "bg:#7c3aed bold #fbbf24",
@@ -436,6 +510,8 @@ async def run_interactive(config: Config) -> None:
         "completion-menu.meta.completion.current": "bg:#7c3aed #e5e7eb",
         "scrollbar.background":                    "bg:#1a0a2e",
         "scrollbar.button":                        "bg:#7c3aed",
+        # Bottom toolbar
+        "bottom-toolbar":                          "bg:#0f172a #4b5563",
     })
 
     active_phase: str | None = None
@@ -489,6 +565,7 @@ async def run_interactive(config: Config) -> None:
         history=FileHistory(str(history_path)),
         completer=_SlashCompleter(),
         lexer=_SlashLexer(),
+        bottom_toolbar=_toolbar,
         complete_while_typing=True,
         style=prompt_style,
         multiline=False,
@@ -496,16 +573,31 @@ async def run_interactive(config: Config) -> None:
 
     _print_banner(config.agents.defaults.provider, config.agents.defaults.model)
 
-    def _on_sigint(sig, frame):
-        console.print("\n[yellow]Goodbye! 🦀[/yellow]")
-        sys.exit(0)
-
-    signal.signal(signal.SIGINT, _on_sigint)
-
     bus_task = asyncio.create_task(agent.run())
     turn_done = asyncio.Event()
     turn_done.set()
     turn_response: list[str] = []
+
+    # ── Ctrl+C handling — never exits, only interrupts the current task ────────
+    _processing = [False]   # mutable so the signal handler closure can read it
+    _loop = asyncio.get_event_loop()
+
+    def _on_sigint(sig, frame):
+        if _processing[0]:
+            # A task is in flight — unblock _send_and_wait and let user continue
+            _loop.call_soon_threadsafe(turn_done.set)
+            console.print(
+                "\n[yellow]⏹  Interrupted.[/yellow]"
+                "  [dim]Type[/dim] [bold #fbbf24]/stop[/bold #fbbf24]"
+                " [dim]to cancel the agent task, or[/dim]"
+                " [bold #fbbf24]/exit[/bold #fbbf24] [dim]to quit.[/dim]"
+            )
+        else:
+            console.print(
+                "\n[dim]Use[/dim] [bold #fbbf24]/exit[/bold #fbbf24] [dim]to quit.[/dim]"
+            )
+
+    signal.signal(signal.SIGINT, _on_sigint)
 
     async def _consume():
         """Drain the outbound bus. Releases prompt as soon as agent replies."""
@@ -556,6 +648,7 @@ async def run_interactive(config: Config) -> None:
     monitor_task = asyncio.create_task(_monitor_background())
 
     async def _send_and_wait(text: str, *, timeout_s: int = DEFAULT_PHASE_TIMEOUT_S) -> str:
+        _processing[0] = True
         turn_done.clear()
         turn_response.clear()
         await bus.publish_inbound(InboundMessage(
@@ -567,6 +660,8 @@ async def run_interactive(config: Config) -> None:
         except asyncio.TimeoutError:
             turn_done.set()
             console.print(f"[yellow]Timed out after {timeout_s}s.[/yellow]")
+        finally:
+            _processing[0] = False
         return turn_response[0] if turn_response else ""
 
     async def _send_and_wait_traced(
@@ -600,9 +695,46 @@ async def run_interactive(config: Config) -> None:
 
     try:
         while True:
-            user_input = await session.prompt_async(HTML("<b fg='#fbbf24'>❯</b> "))
+            try:
+                user_input = await session.prompt_async(HTML("<b fg='#fbbf24'>❯</b> "))
+            except KeyboardInterrupt:
+                # Ctrl+C at idle prompt — never exit, just show hint
+                console.print(
+                    "[dim]Use[/dim] [bold #fbbf24]/exit[/bold #fbbf24] [dim]to quit.[/dim]"
+                )
+                continue
+            except EOFError:
+                # Ctrl+D — treat same as /exit
+                console.print("[yellow]Goodbye! 🦀[/yellow]")
+                break
+
             cmd = user_input.strip()
             if not cmd:
+                continue
+
+            # ── ? → help alias ─────────────────────────────────────────────────
+            if cmd == "?":
+                _show_help()
+                continue
+
+            # ── !cmd → shell passthrough ───────────────────────────────────────
+            if cmd.startswith("!"):
+                shell_cmd = cmd[1:].strip()
+                if not shell_cmd:
+                    console.print(
+                        "[dim]Usage:[/dim] [bold #fbbf24]!<command>[/bold #fbbf24]"
+                        "  [dim]e.g.[/dim] [dim]!ls  !git log  !pwd[/dim]"
+                    )
+                else:
+                    result = subprocess.run(
+                        shell_cmd, shell=True, capture_output=True, text=True, cwd=str(ROOT)
+                    )
+                    if result.stdout:
+                        console.print(result.stdout.rstrip())
+                    if result.stderr:
+                        console.print(f"[red]{result.stderr.rstrip()}[/red]")
+                    if result.returncode != 0 and not result.stdout and not result.stderr:
+                        console.print(f"[dim]Exit code {result.returncode}[/dim]")
                 continue
 
             # ── slash commands ─────────────────────────────────────────────────

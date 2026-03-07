@@ -10,16 +10,17 @@
 
 <br /> -->
 
-**Give it a hackathon URL. It researches, codes, and submits.**
+**🦀 Give 0xClaw a hackathon URL — it researches, codes, tests, and submits, all on its own.**
 
 <br />
 
+[![Discord](https://img.shields.io/badge/Discord-Join%20Us-5865F2?style=flat-square&logo=discord&logoColor=white)](https://discord.gg/rdnYEVdRHe)
 ![Python](https://img.shields.io/badge/Python-3.11-3776AB?style=flat-square&logo=python&logoColor=white)
 ![License](https://img.shields.io/badge/License-MIT-22c55e?style=flat-square)
-![Tests](https://img.shields.io/badge/Tests-32%20passed-22c55e?style=flat-square)
-![FLock.io](https://img.shields.io/badge/Primary%20LLM-FLock.io-7c3aed?style=flat-square)
-![Z.AI](https://img.shields.io/badge/Fallback%20LLM-Z.AI-5b6cf9?style=flat-square)
-![Tracing](https://img.shields.io/badge/Tracing-Anyway-0ea5e9?style=flat-square)
+![Tests](https://img.shields.io/badge/Tests-32%20passed-22c55e?style=flat-square&logo=pytest&logoColor=white)
+![FLock.io](https://img.shields.io/badge/FLock.io-inference-7c3aed?style=flat-square)
+![Z.AI](https://img.shields.io/badge/Z.AI-inference-5b6cf9?style=flat-square)
+![Anyway](https://img.shields.io/badge/Anyway-observability-0ea5e9?style=flat-square)
 
 </div>
 
@@ -63,6 +64,8 @@ Trigger any phase with natural language — routing is automatic.
 </div>
 
 ```
+Some prompts for quick understand the processe:
+
 research the hackathon requirements
 generate project ideas
 plan the architecture
@@ -81,16 +84,19 @@ write the documentation
 <tr><td><code>/new</code></td><td>Clear all outputs, fresh start</td></tr>
 <tr><td><code>/stop</code></td><td>Cancel running task</td></tr>
 <tr><td><code>/help</code></td><td>Show all commands</td></tr>
+<tr><td><code>?</code></td><td>Alias for /help</td></tr>
+<tr><td><code>!&lt;cmd&gt;</code></td><td>Run a shell command without leaving the agent (e.g. <code>!git status</code>)</td></tr>
 </table>
 </div>
 
 Long-running phases hand off to the background after the first reply — you can keep chatting while work continues.
+**Ctrl+C** interrupts the current task but never exits — type `/exit` to quit.
 
 ---
 
 ## 🧠 Models
 
-Primary inference via **FLock.io** · Fallback via **Z.AI**
+Inference powered by **FLock.io** and **Z.AI**
 
 <div align="center">
 <table>
