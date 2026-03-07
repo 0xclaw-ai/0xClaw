@@ -6,6 +6,7 @@ import json
 import os
 import re
 import signal
+import subprocess
 import shutil
 import subprocess
 import sys
@@ -37,6 +38,7 @@ from runtime.providers.custom_provider import CustomProvider
 from runtime.session.manager import SessionManager
 
 sys.path.insert(0, str(Path(__file__).parent))
+from cli_args import parse_gateway_args, parse_whatsapp_args
 from orchestration.contracts import Envelope
 from orchestration.model_profiles import ModelProfileResolver
 from orchestration.router import SkillRouter
@@ -236,6 +238,24 @@ def _load_config() -> Config:
     return config
 
 
+def _load_config_for_channels() -> Config:
+    """Load config.json with env substitution, without provider key validation."""
+    if not CONFIG_PATH.exists():
+        console.print(f"[red]Config not found:[/red] {CONFIG_PATH}")
+        console.print("[dim]Run:[/dim] cp .env.example .env")
+        sys.exit(1)
+
+    raw = CONFIG_PATH.read_text()
+
+    def _substitute(match: re.Match) -> str:
+        return os.environ.get(match.group(1), "")
+
+    raw = re.sub(r"\$\{([^}]+)\}", _substitute, raw)
+    data = json.loads(raw)
+    data.setdefault("agents", {}).setdefault("defaults", {})["workspace"] = str(WORKSPACE)
+    return Config.model_validate(data)
+
+
 def _make_provider(config: Config):
     model = config.agents.defaults.model
     provider_name = config.get_provider_name(model) or config.agents.defaults.provider
@@ -364,6 +384,156 @@ def _make_tracking_provider(config: Config, counter: TokenCounter):
             return inner.get_default_model()
 
     return _Wrapper()
+
+
+def _print_cli_usage() -> None:
+    """Show top-level CLI usage."""
+    console.print("Usage:")
+    console.print("  0xclaw [--logs]")
+    console.print("  0xclaw gateway [--port PORT] [--verbose]")
+    console.print("  0xclaw whatsapp login")
+
+
+def _parse_gateway_args(argv: list[str]) -> tuple[int | None, bool]:
+    """Parse arguments for the gateway subcommand."""
+    if any(arg in {"-h", "--help"} for arg in argv):
+        _print_cli_usage()
+        raise SystemExit(0)
+    return parse_gateway_args(argv)
+
+
+def _parse_whatsapp_args(argv: list[str]) -> str:
+    """Parse arguments for the whatsapp subcommand."""
+    command = parse_whatsapp_args(argv)
+    if command == "help":
+        console.print("Usage:")
+        console.print("  0xclaw whatsapp login")
+        raise SystemExit(0)
+    return command
+
+
+def _find_whatsapp_bridge_source() -> Path:
+    """Locate the installed WhatsApp bridge source directory."""
+    try:
+        import nanobot  # type: ignore
+    except ImportError as exc:
+        console.print("[red]0xClaw WhatsApp bridge assets not found.[/red]")
+        console.print("Install the dependency first in this environment: [cyan]python -m pip install nanobot-ai[/cyan]")
+        raise SystemExit(1) from exc
+
+    bridge_dir = Path(nanobot.__file__).resolve().parent / "bridge"
+    if not (bridge_dir / "package.json").exists():
+        console.print("[red]Installed dependency does not include 0xClaw WhatsApp bridge assets.[/red]")
+        console.print("Reinstall it in this environment: [cyan]python -m pip install --force-reinstall nanobot-ai[/cyan]")
+        raise SystemExit(1)
+    return bridge_dir
+
+
+def _rewrite_bridge_branding(bridge_dir: Path) -> None:
+    """Rewrite copied bridge assets so user-facing branding uses 0xClaw."""
+    replacements = {
+        "nanobot WhatsApp Bridge": "0xClaw WhatsApp Bridge",
+        "WhatsApp bridge for nanobot using Baileys": "WhatsApp bridge for 0xClaw using Baileys",
+        "This bridge connects WhatsApp Web to nanobot's Python backend": "This bridge connects WhatsApp Web to 0xClaw's Python backend",
+        "AUTH_DIR=~/.nanobot/whatsapp npm start": "AUTH_DIR=~/.0xclaw/whatsapp-auth npm start",
+        "join(homedir(), '.nanobot', 'whatsapp-auth')": "join(homedir(), '.0xclaw', 'whatsapp-auth')",
+        "nanobot-whatsapp-bridge": "0xclaw-whatsapp-bridge",
+        "🐈 nanobot WhatsApp Bridge": "🦀 0xClaw WhatsApp Bridge",
+    }
+    targets = [
+        bridge_dir / "package.json",
+        bridge_dir / "src" / "index.ts",
+    ]
+    for path in targets:
+        if not path.exists():
+            continue
+        content = path.read_text(encoding="utf-8")
+        updated = content
+        for old, new in replacements.items():
+            updated = updated.replace(old, new)
+        if updated != content:
+            path.write_text(updated, encoding="utf-8")
+
+
+def _migrate_whatsapp_auth_dir() -> Path:
+    """Move existing WhatsApp auth state into the 0xClaw namespace."""
+    new_auth_dir = Path.home() / ".0xclaw" / "whatsapp-auth"
+    old_auth_dir = Path.home() / ".nanobot" / "whatsapp-auth"
+
+    if new_auth_dir.exists() or not old_auth_dir.exists():
+        new_auth_dir.parent.mkdir(parents=True, exist_ok=True)
+        return new_auth_dir
+
+    new_auth_dir.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copytree(old_auth_dir, new_auth_dir)
+    console.print(f"[yellow]Migrated WhatsApp login state to {new_auth_dir}[/yellow]")
+    return new_auth_dir
+
+
+def _get_whatsapp_bridge_dir() -> Path:
+    """Prepare the WhatsApp bridge working directory if needed."""
+    user_bridge = Path.home() / ".0xclaw" / "bridge"
+
+    if (user_bridge / "dist" / "index.js").exists():
+        return user_bridge
+
+    if not shutil.which("npm"):
+        console.print("[red]npm not found. Please install Node.js >= 20.[/red]")
+        raise SystemExit(1)
+
+    source = _find_whatsapp_bridge_source()
+    console.print("[bold #fbbf24]🦀  Setting up WhatsApp bridge...[/bold #fbbf24]")
+
+    user_bridge.parent.mkdir(parents=True, exist_ok=True)
+    if user_bridge.exists():
+        shutil.rmtree(user_bridge)
+    shutil.copytree(source, user_bridge, ignore=shutil.ignore_patterns("node_modules", "dist"))
+    _rewrite_bridge_branding(user_bridge)
+
+    npm_env = {**os.environ}
+    npm_cache_dir = user_bridge / ".npm-cache"
+    npm_cache_dir.mkdir(parents=True, exist_ok=True)
+    # Use a bridge-local npm cache to avoid failing on a broken global ~/.npm cache.
+    npm_env["npm_config_cache"] = str(npm_cache_dir)
+
+    try:
+        console.print("  Installing dependencies...")
+        subprocess.run(["npm", "install"], cwd=user_bridge, check=True, capture_output=True, env=npm_env)
+        console.print("  Building...")
+        subprocess.run(["npm", "run", "build"], cwd=user_bridge, check=True, capture_output=True, env=npm_env)
+        console.print("[green]✓[/green] Bridge ready\n")
+    except subprocess.CalledProcessError as exc:
+        console.print(f"[red]Bridge setup failed: {exc}[/red]")
+        if exc.stderr:
+            console.print(f"[dim]{exc.stderr.decode()[:800]}[/dim]")
+        raise SystemExit(1) from exc
+
+    return user_bridge
+
+
+def run_whatsapp_login() -> None:
+    """Start the WhatsApp bridge and wait for QR login."""
+    config = _load_config_for_channels()
+    bridge_dir = _get_whatsapp_bridge_dir()
+    auth_dir = _migrate_whatsapp_auth_dir()
+
+    console.print("[bold #fbbf24]🦀  Starting WhatsApp bridge...[/bold #fbbf24]")
+    console.print("Scan the QR code in this terminal to link WhatsApp.\n")
+
+    env = {**os.environ}
+    env["npm_config_cache"] = str(bridge_dir / ".npm-cache")
+    env["AUTH_DIR"] = str(auth_dir)
+    if config.channels.whatsapp.bridge_token:
+        env["BRIDGE_TOKEN"] = config.channels.whatsapp.bridge_token
+
+    try:
+        subprocess.run(["npm", "start"], cwd=bridge_dir, check=True, env=env)
+    except subprocess.CalledProcessError as exc:
+        console.print(f"[red]Bridge failed: {exc}[/red]")
+        raise SystemExit(1) from exc
+    except FileNotFoundError as exc:
+        console.print("[red]npm not found. Please install Node.js >= 20.[/red]")
+        raise SystemExit(1) from exc
 
 
 def _reset_phase_and_downstream(phase: str, state_store: PipelineStateStore) -> list[str]:
@@ -1055,18 +1225,199 @@ async def run_interactive(config: Config) -> None:
         await agent.close_mcp()
 
 
+async def run_gateway(config: Config, *, port: int | None = None, verbose: bool = False) -> None:
+    """Start messaging channels using the repository-local config."""
+    if verbose:
+        import logging
+
+        logging.basicConfig(level=logging.DEBUG)
+
+    from runtime.agent.tools.message import MessageTool
+    from runtime.bus.events import OutboundMessage
+    from runtime.channels.manager import ChannelManager
+    from runtime.heartbeat.service import HeartbeatService
+
+    provider = _make_provider(config)
+    bus = MessageBus()
+    session_manager = SessionManager(WORKSPACE)
+
+    cron_path = WORKSPACE / ".cron" / "jobs.json"
+    cron_path.parent.mkdir(parents=True, exist_ok=True)
+    cron = CronService(cron_path)
+
+    agent = AgentLoop(
+        bus=bus,
+        provider=provider,
+        workspace=WORKSPACE,
+        model=config.agents.defaults.model,
+        temperature=config.agents.defaults.temperature,
+        max_tokens=config.agents.defaults.max_tokens,
+        max_iterations=config.agents.defaults.max_tool_iterations,
+        memory_window=config.agents.defaults.memory_window,
+        reasoning_effort=config.agents.defaults.reasoning_effort,
+        brave_api_key=config.tools.web.search.api_key or None,
+        web_proxy=config.tools.web.proxy or None,
+        exec_config=config.tools.exec,
+        cron_service=cron,
+        restrict_to_workspace=config.tools.restrict_to_workspace,
+        session_manager=session_manager,
+        mcp_servers=config.tools.mcp_servers,
+        channels_config=config.channels,
+    )
+    agent.tools.register(VirtualsTool())
+    agent.tools.register(UnibaseTool())
+
+    async def on_cron_job(job) -> str | None:
+        """Execute a scheduled job through the main agent loop."""
+        reminder_note = (
+            "[Scheduled Task] Timer finished.\n\n"
+            f"Task '{job.name}' has been triggered.\n"
+            f"Scheduled instruction: {job.payload.message}"
+        )
+
+        response = await agent.process_direct(
+            reminder_note,
+            session_key=f"cron:{job.id}",
+            channel=job.payload.channel or "cli",
+            chat_id=job.payload.to or "direct",
+        )
+
+        message_tool = agent.tools.get("message")
+        if isinstance(message_tool, MessageTool) and message_tool._sent_in_turn:
+            return response
+
+        if job.payload.deliver and job.payload.to and response:
+            await bus.publish_outbound(
+                OutboundMessage(
+                    channel=job.payload.channel or "cli",
+                    chat_id=job.payload.to,
+                    content=response,
+                )
+            )
+        return response
+
+    cron.on_job = on_cron_job
+    channels = ChannelManager(config, bus)
+
+    def _pick_heartbeat_target() -> tuple[str, str]:
+        """Pick the best available external session for heartbeat delivery."""
+        enabled = set(channels.enabled_channels)
+        for item in session_manager.list_sessions():
+            key = item.get("key") or ""
+            if ":" not in key:
+                continue
+            channel, chat_id = key.split(":", 1)
+            if channel in {"cli", "system"}:
+                continue
+            if channel in enabled and chat_id:
+                return channel, chat_id
+        return "cli", "direct"
+
+    async def on_heartbeat_execute(tasks: str) -> str:
+        """Run heartbeat work through the full agent loop."""
+        channel, chat_id = _pick_heartbeat_target()
+
+        async def _silent(*_args, **_kwargs) -> None:
+            return None
+
+        return await agent.process_direct(
+            tasks,
+            session_key="heartbeat",
+            channel=channel,
+            chat_id=chat_id,
+            on_progress=_silent,
+        )
+
+    async def on_heartbeat_notify(response: str) -> None:
+        """Send heartbeat output back to the active external channel."""
+        channel, chat_id = _pick_heartbeat_target()
+        if channel == "cli":
+            return
+        await bus.publish_outbound(
+            OutboundMessage(channel=channel, chat_id=chat_id, content=response)
+        )
+
+    hb_cfg = config.gateway.heartbeat
+    heartbeat = HeartbeatService(
+        workspace=WORKSPACE,
+        provider=provider,
+        model=agent.model,
+        on_execute=on_heartbeat_execute,
+        on_notify=on_heartbeat_notify,
+        interval_s=hb_cfg.interval_s,
+        enabled=hb_cfg.enabled,
+    )
+
+    listen_port = port or config.gateway.port
+    console.print(f"[bold #fbbf24]🦀  Starting 0xClaw gateway on port {listen_port}[/bold #fbbf24]")
+    if channels.enabled_channels:
+        console.print(f"[green]✓[/green] Channels enabled: {', '.join(channels.enabled_channels)}")
+    else:
+        console.print("[yellow]Warning: No channels enabled[/yellow]")
+
+    cron_status = cron.status()
+    if cron_status["jobs"] > 0:
+        console.print(f"[green]✓[/green] Cron: {cron_status['jobs']} scheduled jobs")
+    console.print(f"[green]✓[/green] Heartbeat: every {hb_cfg.interval_s}s")
+
+    try:
+        await cron.start()
+        await heartbeat.start()
+        await asyncio.gather(
+            agent.run(),
+            channels.start_all(),
+        )
+    except KeyboardInterrupt:
+        console.print("\n[yellow]Shutting down gateway...[/yellow]")
+    finally:
+        await agent.close_mcp()
+        heartbeat.stop()
+        cron.stop()
+        agent.stop()
+        await channels.stop_all()
+
+
 # ── entry point ────────────────────────────────────────────────────────────────
 def main() -> None:
-    # Suppress all loguru output unless --logs flag is passed
-    if "--logs" not in sys.argv:
+    argv = sys.argv[1:]
+
+    if argv and argv[0] in {"-h", "--help"}:
+        _print_cli_usage()
+        return
+
+    wants_logs = "--logs" in argv or "--verbose" in argv
+
+    # Suppress all loguru output unless logs were explicitly requested.
+    if not wants_logs:
         logger.remove()
 
     load_dotenv(ROOT / ".env")
-    config = _load_config()
-
     from runtime.utils.helpers import sync_workspace_templates
     sync_workspace_templates(WORKSPACE)
 
+    if argv and argv[0] == "gateway":
+        try:
+            port, verbose = _parse_gateway_args(argv[1:])
+        except ValueError as exc:
+            console.print(f"[red]{exc}[/red]")
+            _print_cli_usage()
+            raise SystemExit(2) from exc
+        config = _load_config()
+        asyncio.run(run_gateway(config, port=port, verbose=verbose))
+        return
+
+    if argv and argv[0] == "whatsapp":
+        try:
+            command = _parse_whatsapp_args(argv[1:])
+        except ValueError as exc:
+            console.print(f"[red]{exc}[/red]")
+            _print_cli_usage()
+            raise SystemExit(2) from exc
+        if command == "login":
+            run_whatsapp_login()
+            return
+
+    config = _load_config()
     asyncio.run(run_interactive(config))
 
 
