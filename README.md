@@ -41,6 +41,8 @@ cp .env.example .env          # fill in FLOCK_API_KEY at minimum
 conda activate 0xclaw
 0xclaw           # interactive CLI
 0xclaw --logs    # with debug output
+0xclaw gateway   # start Telegram/other chat channels from repo config
+0xclaw whatsapp login   # start WhatsApp bridge and scan QR
 ```
 
 ---
@@ -124,6 +126,9 @@ The runtime has built-in support for 10 messaging platforms. Enable any via `con
 </div>
 
 Telegram uses long polling — no public IP or webhook required.
+Configure it in `0xclaw/config/config.json` under `channels.telegram`, then run `0xclaw gateway`.
+
+WhatsApp uses a local bridge process. Configure `channels.whatsapp`, run `0xclaw whatsapp login` to scan the QR code, then start `0xclaw gateway`. Bridge assets and auth state are stored under `~/.0xclaw/`.
 
 ---
 
