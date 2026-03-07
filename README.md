@@ -1,12 +1,14 @@
+# 🦀 0xClaw — Autonomous AI Hackathon Competitor
+
 <div align="center">
 
-<img src="assets/0xclaw_logo.png" alt="0xClaw" width="130" />
+<img src="assets/0xClaw_combine.png" alt="0xClaw" width="130" />
 
 <br />
 
-<img src="assets/banner.svg" alt="0xClaw" />
+<!-- <img src="assets/banner.svg" alt="0xClaw" />
 
-<br />
+<br /> -->
 
 **Give it a hackathon URL. It researches, codes, and submits.**
 
@@ -132,5 +134,5 @@ Telegram uses long polling — no public IP or webhook required.
 ---
 
 <div align="center">
-<sub>Built for <a href="https://dorahacks.io/hackathon/1985">UK AI Agent Hackathon EP4</a> in collaboration with OpenClaw · Powered by the 0xClaw Agent Runtime</sub>
+<sub>Built for <a href="https://dorahacks.io/hackathon/1985">UK AI Agent Hackathon EP4</a> in collaboration with 🦞 <a href="https://github.com/openclaw/openclaw">OpenClaw</a>  · Thanks to 🐈 <a href="https://github.com/HKUDS/nanobot">NanoBot</a> Framework</sub>
 </div>
