@@ -10,7 +10,7 @@
 
 <br /> -->
 
-**🦀 Give 0xClaw a hackathon URL — it researches, codes, tests, and submits, all on its own.**
+**Give 0xClaw a hackathon URL — it researches, codes, tests, and submits, all on its own.**
 
 <br />
 
