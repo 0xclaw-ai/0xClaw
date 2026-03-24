@@ -10,6 +10,10 @@
 
 <br /> -->
 
+**🏆 1st Place Winner – Z.ai Bounty @ UK AI Agent Hackathon × OpenClaw 🦞.**
+
+**🏆 Finalist Winner – Anyway Bounty @ UK AI Agent Hackathon × OpenClaw 🦞.**
+
 **Give 0xClaw a hackathon URL — it researches, codes, tests, and submits, all on its own.**
 
 <br />
