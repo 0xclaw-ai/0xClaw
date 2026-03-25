@@ -342,7 +342,7 @@ async def run(command: str, timeout_per_turn: int = 240, max_turns: int = MAX_TU
     # SessionManager persists JSONL files in workspace/sessions/; without
     # clearing them, each phase inherits the full message history of all
     # prior phases (100-200 messages).  The agent then mimics the most
-    # recent tool-call patterns (e.g. pytest retry loops from the test
+    # recent tool-call patterns from validation/debug loops
     # phase bleed into the docs phase).  Deleting the files here gives
     # every phase a clean slate while leaving MEMORY.md intact.
     sessions_dir = WORKSPACE / "sessions"
