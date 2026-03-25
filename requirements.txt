@@ -1,0 +1,16 @@
+# Runtime dependencies for quick install/repro.
+# This list mirrors the repo's declared runtime dependencies.
+# For development, prefer: pip install -e .[dev]
+python-telegram-bot>=21.0,<23.0
+anyway-sdk>=0.0.6
+prompt-toolkit>=3.0.50,<4.0.0
+rich>=14.0.0,<15.0.0
+typer>=0.12.0,<1.0.0
+loguru>=0.7.3,<1.0.0
+openai>=1.66.0,<2.0.0
+httpx>=0.28.0,<1.0.0
+pydantic>=2.0.0,<3.0.0
+pydantic-settings>=2.0.0,<3.0.0
+json-repair>=0.30.0,<1.0.0
+litellm>=1.60.0,<2.0.0
+python-dotenv>=1.0.0,<2.0.0
