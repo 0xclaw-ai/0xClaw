@@ -724,7 +724,7 @@ async def run_hackathon(
             )
         if not (HACKATHON_DIR / "tasks.json").exists():
             (HACKATHON_DIR / "tasks.json").write_text(
-                json.dumps({"tasks": ["implement core features", "write tests", "write docs"]}, indent=2)
+                json.dumps({"tasks": ["implement core features", "verify core flows", "write docs"]}, indent=2)
             )
 
         # ── Phase 5: implementation ───────────────────────────────────────────
@@ -732,8 +732,6 @@ async def run_hackathon(
         await run_phase_cmd(
             "start coding — implement the hackathon project. "
             "Read plan.md and tasks.json. Write all code to hackathon/project/. "
-            "REQUIRED: also write pytest tests to hackathon/project/tests/test_core.py "
-            "covering the main components (at least 5 test functions). "
             "STRICT RULES to prevent loops: "
             "(1) Write each file path EXACTLY ONCE — never call write_file on the same path twice. "
             "(2) Before writing any file, call list_dir to check if it already exists; if it does, skip it. "

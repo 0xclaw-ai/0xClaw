@@ -119,7 +119,6 @@ SHELL_SUGGESTIONS: list[tuple[str, str]] = [
     ("git status",                                 "git working tree status"),
     ("git log --oneline -5",                       "last 5 commits"),
     ("git diff",                                   "show unstaged changes"),
-    ("python -m pytest tests/ -q",                 "run test suite"),
     ("cat workspace/hackathon/pipeline_state.json","pipeline phase state"),
     ("pwd",                                        "current directory"),
 ]
