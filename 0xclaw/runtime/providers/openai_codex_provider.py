@@ -9,7 +9,11 @@ from typing import Any, AsyncGenerator
 
 import httpx
 from loguru import logger
-from oauth_cli_kit import get_token as get_codex_token
+
+try:
+    from oauth_cli_kit import get_token as get_codex_token
+except ImportError:  # optional dependency for Codex OAuth flows
+    get_codex_token = None
 
 from runtime.providers.base import LLMProvider, LLMResponse, ToolCallRequest
 
@@ -35,6 +39,12 @@ class OpenAICodexProvider(LLMProvider):
     ) -> LLMResponse:
         model = model or self.default_model
         system_prompt, input_items = _convert_messages(messages)
+
+        if get_codex_token is None:
+            return LLMResponse(
+                content="Error calling Codex: optional dependency 'oauth_cli_kit' is not installed.",
+                finish_reason="error",
+            )
 
         token = await asyncio.to_thread(get_codex_token)
         headers = _build_headers(token.account_id, token.access)

@@ -235,30 +235,6 @@ Additional runtime files (also gitignored):
 
 ---
 
-## Test suite
-
-32 tests, all passing. Run with:
-
-```bash
-conda activate 0xclaw
-python -m pytest tests/ -q
-```
-
-Key test files:
-
-| File | Covers |
-|------|--------|
-| `tests/test_router.py` | `SkillRouter` — 30-sample accuracy test (≥90% required), CJK matching |
-| `tests/test_state_store.py` | `PipelineStateStore` phase transitions |
-| `tests/test_contracts.py` | `Envelope` serialisation |
-| `tests/test_write_guard.py` | Phase-scoped write protection |
-| `tests/test_model_profiles.py` | `ModelProfileResolver` |
-| `tests/test_cancel_resume.py` | `/resume` logic, `/stop` wiring, `/new` reset wiring |
-| `tests/test_anyway_observability.py` | Anyway tracing (no-op when key absent) |
-| `tests/test_integration_pipeline.py` | Full pipeline state flow |
-
----
-
 ## DevAgent — the generated product
 
 Location: `workspace/hackathon/project/` (gitignored)

@@ -21,7 +21,6 @@
 [![Discord](https://img.shields.io/badge/Discord-Join%20Us-5865F2?style=flat-square&logo=discord&logoColor=white)](https://discord.gg/rdnYEVdRHe)
 [![Python](https://img.shields.io/badge/Python-3.11-3776AB?style=flat-square&logo=python&logoColor=white)](https://python.org)
 [![License](https://img.shields.io/badge/License-MIT-22c55e?style=flat-square)](./LICENSE)
-[![Tests](https://img.shields.io/badge/Tests-32%20passed-22c55e?style=flat-square&logo=pytest&logoColor=white)](./tests/)
 [![FLock.io](https://img.shields.io/badge/FLock.io-inference-7c3aed?style=flat-square)](https://flock.io)
 [![Z.ai](https://img.shields.io/badge/Z.ai-inference-5b6cf9?style=flat-square)](http://z.ai)
 [![Anyway](https://img.shields.io/badge/Anyway-observability-0ea5e9?style=flat-square)](https://anyway.sh)
@@ -33,11 +32,25 @@
 ## ⚙️ Setup
 
 ```bash
-conda create -n 0xclaw python=3.11 -y && conda activate 0xclaw
+conda create -n 0xclaw python=3.11 -y
+conda activate 0xclaw
+pip install -r requirements.txt
 pip install -e .
-cp .env.example .env          # fill in FLOCK_API_KEY at minimum
+cp .env.example .env
 ./scripts/verify_setup.sh
 ```
+
+Then fill in `FLOCK_API_KEY` in `.env`.
+
+For a quick sanity check after installation:
+
+```bash
+python launcher/__main__.py --help
+0xclaw --help
+```
+
+Use `pip install -r requirements.txt` to install the runtime dependencies and
+`pip install -e .` to install the local CLI in editable mode.
 
 ## 🚀 Launch
 
@@ -164,4 +177,3 @@ WhatsApp uses a local bridge process. Configure `channels.whatsapp`, run `0xclaw
 <div align="center">
 <sub>Built for <a href="https://dorahacks.io/hackathon/1985">UK AI Agent Hackathon EP4</a> in collaboration with 🦞 <a href="https://github.com/openclaw/openclaw">OpenClaw</a>  · Thanks to 🐈 <a href="https://github.com/HKUDS/nanobot">NanoBot</a> Framework</sub>
 </div>
-
