@@ -71,7 +71,9 @@ class PipelineStateStore:
 
     def save(self, state: dict) -> None:
         state["updated_at"] = _utc_now()
-        self.path.write_text(json.dumps(state, indent=2, ensure_ascii=False), encoding="utf-8")
+        tmp = self.path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(state, indent=2, ensure_ascii=False), encoding="utf-8")
+        tmp.replace(self.path)  # atomic rename — prevents partial-write corruption
 
     def set_phase_status(self, phase: str, status: str, *, last_error: str | None = None, active_task: str | None = None) -> dict:
         state = self.load()
