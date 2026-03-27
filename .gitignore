@@ -22,6 +22,8 @@ workspace/.cron/
 workspace/.history/
 workspace/sessions/
 workspace/memory/HISTORY.md
+workspace/memory/MEMORY.md
+workspace/raw_ideas.md
 
 # Pipeline runtime state (generated at run time)
 workspace/hackathon/envelopes.jsonl

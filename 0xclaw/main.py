@@ -8,7 +8,6 @@ import re
 import signal
 import subprocess
 import shutil
-import subprocess
 import sys
 import time
 from dataclasses import dataclass, field
@@ -37,7 +36,6 @@ from runtime.providers.litellm_provider import LiteLLMProvider
 from runtime.providers.custom_provider import CustomProvider
 from runtime.session.manager import SessionManager
 
-sys.path.insert(0, str(Path(__file__).parent))
 from cli_args import parse_gateway_args, parse_whatsapp_args
 from orchestration.contracts import Envelope
 from orchestration.model_profiles import ModelProfileResolver
@@ -159,9 +157,6 @@ def _print_banner(provider: str, model: str) -> None:
     meta.append("\n\n  Autonomous Hackathon Agent", style="white")
     meta.append("  ·  ", style="dim")
     meta.append("v0.1.0", style="dim white")
-    meta.append("\n  UK AI Agent Hackathon EP4 × OpenClaw", style="dim white")
-    meta.append("  ·  ", style="dim")
-    meta.append("DoraHacks #1985", style="dim white")
     meta.append("\n")
 
     content = Text()
@@ -197,62 +192,62 @@ def _print_banner(provider: str, model: str) -> None:
 
 
 # ── config ─────────────────────────────────────────────────────────────────────
-def _load_config() -> Config:
-    """Load config.json with env substitution and provider-aware key validation."""
+def _load_config(*, validate_provider_key: bool = True) -> Config:
+    """Load config.json with env-var substitution.
+
+    Args:
+        validate_provider_key: When True (default), abort if the active provider
+            has no API key configured.  Pass False for channel/gateway mode where
+            a missing LLM key is non-fatal.
+    """
     if not CONFIG_PATH.exists():
         console.print(f"[red]Config not found:[/red] {CONFIG_PATH}")
-        console.print("[dim]Run:[/dim] cp .env.example .env")
+        console.print(
+            "[dim]Copy the example and fill in your API keys:[/dim] "
+            f"cp {CONFIG_PATH}.example {CONFIG_PATH}"
+        )
         sys.exit(1)
 
     raw = CONFIG_PATH.read_text()
 
+    missing_vars: list[str] = []
+
     def _substitute(match: re.Match) -> str:
-        return os.environ.get(match.group(1), "")
+        key = match.group(1)
+        val = os.environ.get(key, "")
+        if not val:
+            missing_vars.append(key)
+        return val
 
     raw = re.sub(r"\$\{([^}]+)\}", _substitute, raw)
-    data = json.loads(raw)
+    if missing_vars:
+        logger.debug("Env vars not set (will be empty in config): %s", ", ".join(missing_vars))
 
+    data = json.loads(raw)
     data.setdefault("agents", {}).setdefault("defaults", {})["workspace"] = str(WORKSPACE)
     config = Config.model_validate(data)
 
-    model = config.agents.defaults.model
-    provider_name = config.get_provider_name(model) or config.agents.defaults.provider
-    provider_cfg = config.get_provider(model)
-    if not provider_cfg or not (provider_cfg.api_key or "").strip():
-        key_hints: dict[str, tuple[str, str]] = {
-            "flock": ("FLOCK_API_KEY", "https://platform.flock.io"),
-            "zhipu": ("ZAI_API_KEY", "https://open.bigmodel.cn"),
-            "openrouter": ("OPENROUTER_API_KEY", "https://openrouter.ai/keys"),
-            "deepseek": ("DEEPSEEK_API_KEY", "https://platform.deepseek.com"),
-            "openai": ("OPENAI_API_KEY", "https://platform.openai.com/api-keys"),
-            "anthropic": ("ANTHROPIC_API_KEY", "https://console.anthropic.com/settings/keys"),
-            "gemini": ("GEMINI_API_KEY", "https://aistudio.google.com/apikey"),
-        }
-        env_name, help_url = key_hints.get(provider_name, ("<PROVIDER_API_KEY>", ""))
-        console.print(f"[red bold]✗ {env_name} is not set for provider '{provider_name}'.[/red bold]")
-        if help_url:
-            console.print(f"  [dim]Get your key at[/dim] [cyan link={help_url}]{help_url}[/cyan]")
-        sys.exit(1)
+    if validate_provider_key:
+        model = config.agents.defaults.model
+        provider_name = config.get_provider_name(model) or config.agents.defaults.provider
+        provider_cfg = config.get_provider(model)
+        if not provider_cfg or not (provider_cfg.api_key or "").strip():
+            key_hints: dict[str, tuple[str, str]] = {
+                "flock": ("FLOCK_API_KEY", "https://platform.flock.io"),
+                "zhipu": ("ZAI_API_KEY", "https://open.bigmodel.cn"),
+                "openrouter": ("OPENROUTER_API_KEY", "https://openrouter.ai/keys"),
+                "deepseek": ("DEEPSEEK_API_KEY", "https://platform.deepseek.com"),
+                "openai": ("OPENAI_API_KEY", "https://platform.openai.com/api-keys"),
+                "anthropic": ("ANTHROPIC_API_KEY", "https://console.anthropic.com/settings/keys"),
+                "gemini": ("GEMINI_API_KEY", "https://aistudio.google.com/apikey"),
+            }
+            env_name, help_url = key_hints.get(provider_name, ("<PROVIDER_API_KEY>", ""))
+            console.print(f"[red bold]✗ {env_name} is not set for provider '{provider_name}'.[/red bold]")
+            if help_url:
+                console.print(f"  [dim]Get your key at[/dim] [cyan link={help_url}]{help_url}[/cyan]")
+            sys.exit(1)
 
     return config
-
-
-def _load_config_for_channels() -> Config:
-    """Load config.json with env substitution, without provider key validation."""
-    if not CONFIG_PATH.exists():
-        console.print(f"[red]Config not found:[/red] {CONFIG_PATH}")
-        console.print("[dim]Run:[/dim] cp .env.example .env")
-        sys.exit(1)
-
-    raw = CONFIG_PATH.read_text()
-
-    def _substitute(match: re.Match) -> str:
-        return os.environ.get(match.group(1), "")
-
-    raw = re.sub(r"\$\{([^}]+)\}", _substitute, raw)
-    data = json.loads(raw)
-    data.setdefault("agents", {}).setdefault("defaults", {})["workspace"] = str(WORKSPACE)
-    return Config.model_validate(data)
 
 
 def _make_provider(config: Config):
@@ -513,7 +508,7 @@ def _get_whatsapp_bridge_dir() -> Path:
 
 def run_whatsapp_login() -> None:
     """Start the WhatsApp bridge and wait for QR login."""
-    config = _load_config_for_channels()
+    config = _load_config(validate_provider_key=False)
     bridge_dir = _get_whatsapp_bridge_dir()
     auth_dir = _migrate_whatsapp_auth_dir()
 
@@ -966,7 +961,7 @@ async def run_interactive(config: Config) -> None:
                     _redo_commands = {
                         "research": "run research phase",
                         "idea": "generate ideas",
-                        "selection": "select best idea for DevAgent",
+                        "selection": "select the best idea",
                         "planning": "plan the architecture",
                         "coding": "implement the project",
                         "testing": "run tests",

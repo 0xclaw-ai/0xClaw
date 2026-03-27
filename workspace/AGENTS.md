@@ -153,32 +153,6 @@ All inter-agent data lives in `hackathon/`:
 
 ---
 
-<!-- ## Sponsor Integration Requirements
-
-These are non-negotiable for maximum scoring:
-
-**FLock.io (Gold Sponsor)**
-- Use as primary LLM inference in the generated project
-- API: `https://api.flock.io/v1` (OpenAI-compatible)
-- Auth: `x-litellm-api-key: $FLOCK_API_KEY`
-- Preferred model: `qwen3-30b-a3b-instruct-2507`
-
-**Virtuals Protocol (Bronze Sponsor)**
-- Create on-chain agent identities via GAME SDK
-- SDK: `pip install virtuals_sdk`
-- Use for multi-agent coordination with on-chain provenance
-
-**Unibase (Bronze Sponsor)**
-- Persistent cross-session agent memory on-chain
-- SDK: `pip install git+https://github.com/unibaseio/aip-agent`
-- Use to store agent decisions with verifiable history
-
-**Other confirmed sponsors** (Silver: The Compression Company, Animoca Brands, Lovable, SuperCell;
-Gold: Sierra.ai, Z.ai, Cantor8) — integrate where relevant to the chosen project idea.
-ManusAI is a co-host/partner (not a sponsor) but their autonomous agent platform is very relevant. -->
-
----
-
 ## Spawn Task Guidelines
 
 When spawning sub-agents:
