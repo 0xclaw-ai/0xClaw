@@ -4,32 +4,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this project is
 
-0xClaw is an autonomous hackathon agent competing in the **UK AI Agent Hackathon EP4 x OpenClaw**
-(DoraHacks #1985, deadline **7 March 2026 23:59**). The meta-story is the submission: an AI agent
-that independently researched, planned, coded, and submitted a project to the very hackathon it
-was entered in.
+0xClaw is a general-purpose **autonomous hackathon agent** platform. Given a hackathon URL,
+it autonomously runs a 7-phase pipeline on behalf of a human participant:
 
-The agent receives a hackathon URL, then autonomously runs a 7-phase pipeline:
 **Research → Ideation → Selection → Planning → Implementation → Testing → Documentation**
 
-The **generated project** (Layer 2) is **DevAgent** — an autonomous terminal coding agent —
-located at `workspace/hackathon/project/`.
+A single user can run 0xClaw against multiple hackathons in sequence. Each run produces
+an independent set of gitignored artefacts under `workspace/hackathon/`.
 
-### Current pipeline status
-
-All 7 phases are complete. Outputs are gitignored runtime artefacts in `workspace/hackathon/`:
-
-| Phase | Status | Key output |
-|-------|--------|------------|
-| research | done | `context.json`, `research_summary.md` |
-| idea | done | `ideas.json` |
-| selection | done | `selected_idea.json` |
-| planning | done | `plan.md`, `tasks.json` |
-| coding | done | `project/` (DevAgent) |
-| testing | done | `test_results.json` |
-| doc | done | `submission/` (README, SUBMISSION, PITCH) |
-
-Remaining work: demo video, GitHub repo publish, DoraHacks BUIDL page submission.
+The generated project (Layer 2) is created fresh per hackathon and lives at
+`workspace/hackathon/project/` (gitignored at runtime).
 
 ---
 
@@ -56,19 +40,6 @@ cp .env.example .env           # first time only; fill in real API keys
 
 ---
 
-## Sponsors (from Luma — authoritative)
-
-| Tier | Sponsors |
-|------|---------|
-| Gold | FLock.io, Sierra.ai, Z.ai, Cantor8 |
-| Silver | The Compression Company, Animoca Brands, Lovable, Anyway, SuperCell, AfterQuery |
-| Bronze | Virtual Protocol, Unibase |
-| Partner | ManusAI (co-host, not sponsor) |
-
-**Venice.ai is NOT a sponsor — do not include it anywhere.**
-
----
-
 ## Two-layer architecture
 
 ```
@@ -82,9 +53,9 @@ Layer 1 — 0xClaw (the agent we maintain)
   launcher/                 CLI entry point wrapper (resolves 0x hex-literal import issue)
   workspace/                Agent identity, skills, pipeline state
 
-Layer 2 — Generated project (DevAgent)
-  workspace/hackathon/project/   The hackathon submission (gitignored)
-  workspace/hackathon/submission/ Pitch and README documents (gitignored)
+Layer 2 — Generated project (per-hackathon, gitignored)
+  workspace/hackathon/project/    The built project (gitignored)
+  workspace/hackathon/submission/ README, pitch, and submission docs (gitignored)
 ```
 
 ---
@@ -94,8 +65,8 @@ Layer 2 — Generated project (DevAgent)
 | File | Purpose |
 |------|---------|
 | `0xclaw/main.py` | Entry point: CLI loop, AgentLoop wiring, slash commands, reset/resume/stop |
-| `0xclaw/config/config.json` | Provider config — FLock (primary), Zhipu/Z.ai (secondary). Env vars substituted at load time |
-| `0xclaw/config/model_profiles.json` | Per-phase model + timeout overrides (minimax-m2.1 for early phases, minimax-m2.5 for coding/testing) |
+| `0xclaw/config/config.json` | Provider config (edit to set your LLM provider + API key). Env vars substituted at load time |
+| `0xclaw/config/model_profiles.json` | Per-phase model + timeout overrides |
 | `0xclaw/orchestration/state.py` | `PipelineStateStore`, `OrchestratorStateMachine` — phase deps and artifact requirements |
 | `0xclaw/orchestration/router.py` | `SkillRouter` — keyword + LLM fallback routing. Supports English and Chinese triggers |
 | `0xclaw/orchestration/contracts.py` | `Envelope`, `ArtifactMeta` dataclasses for CLI → AgentLoop messages |
@@ -105,8 +76,8 @@ Layer 2 — Generated project (DevAgent)
 | `0xclaw/observability/anyway.py` | `init_anyway_from_env()`, `workflow_span()` — gracefully no-ops if key absent |
 | `0xclaw/tools/virtuals_tool.py` | Virtuals Protocol GAME SDK — on-chain agent identity |
 | `0xclaw/tools/unibase_tool.py` | Unibase membase — persistent on-chain memory |
-| `0xclaw/runtime/providers/registry.py` | FLock provider spec (our addition — safe to modify) |
-| `0xclaw/runtime/config/schema.py` | `ProvidersConfig` with `flock` field (our addition — safe to modify) |
+| `0xclaw/runtime/providers/registry.py` | Provider spec registry (safe to modify — add new providers here) |
+| `0xclaw/runtime/config/schema.py` | `ProvidersConfig` Pydantic schema (safe to modify — add provider fields here) |
 | `workspace/SOUL.md` | Agent identity and mission (loaded every turn) |
 | `workspace/AGENTS.md` | 7-phase pipeline protocol (loaded every turn) |
 | `workspace/skills/*/SKILL.md` | Spawn task templates — one per pipeline phase |
@@ -232,39 +203,6 @@ Additional runtime files (also gitignored):
 - `envelopes.jsonl` — append-only log of every phase invocation
 - `metrics.jsonl` — per-run latency / token metrics from `MetricsLogger`
 - `pipeline_state.json` — current phase status map
-
----
-
-## DevAgent — the generated product
-
-Location: `workspace/hackathon/project/` (gitignored)
-
-```
-devagent/
-  cli.py              Click CLI — 5 commands: init, plan, build, status, history
-  config.py           Env-based config loader (FLOCK_API_KEY, DEVAGENT_DIR)
-  agents/
-    planner.py        PlannerAgent — FLock LLM → structured JSON plan (Pydantic)
-    coder.py          CoderAgent — generates each file with preview + y/n/e prompt
-  llm/
-    flock_client.py   Thin async wrapper around FLock OpenAI-compatible endpoint
-  state/
-    store.py          SQLite-backed StateStore — sessions, decisions, file writes
-  memory/
-    unibase_memory.py Unibase on-chain persistent memory (optional)
-  identity/
-    virtuals_identity.py Virtuals Protocol agent identity (optional)
-```
-
-Install and verify:
-
-```bash
-cd workspace/hackathon/project
-pip install -e .
-devagent --help
-```
-
-Dependencies: `click>=8.1`, `rich>=13.7`, `httpx>=0.27`, `openai>=1.66,<2.0`
 
 ---
 
