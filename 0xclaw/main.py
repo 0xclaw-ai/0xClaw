@@ -39,9 +39,21 @@ from runtime.session.manager import SessionManager
 from cli_args import parse_gateway_args, parse_whatsapp_args
 from orchestration.contracts import Envelope
 from orchestration.model_profiles import ModelProfileResolver
+from orchestration.phase_completion import (
+    clear_marker,
+    detect_failure_reason,
+    is_phase_complete,
+    marker_path,
+    output_exists as phase_output_exists,
+    write_marker,
+)
 from orchestration.router import SkillRouter
 from orchestration.session_control import SessionControl
-from orchestration.state import OrchestratorStateMachine, PipelineStateStore
+from orchestration.state import (
+    COMPLETED_PHASE_STATUSES,
+    OrchestratorStateMachine,
+    PipelineStateStore,
+)
 from orchestration.write_guard import build_phase_write_guard, install_phase_write_guards
 from tools.virtuals_tool import VirtualsTool
 from tools.unibase_tool import UnibaseTool
@@ -66,6 +78,7 @@ PHASE_OUTPUTS: dict[str, Path] = {
 }
 DEFAULT_PHASE_TIMEOUT_S = 240
 HACKATHON_RUNTIME_PATHS = (
+    "coding.done.json",
     "context.json",
     "ideas.json",
     "selected_idea.json",
@@ -289,6 +302,7 @@ def _show_help() -> None:
 def _show_pipeline_status(state_store: PipelineStateStore) -> None:
     STATUS_STYLE = {
         "done":      ("[green]✓[/green]",        "done",      "green"),
+        "complete":  ("[green]✓[/green]",        "done",      "green"),
         "running":   ("[#7c3aed]●[/#7c3aed]", "running",   "#7c3aed"),
         "failed":    ("[red]✗[/red]",          "failed",    "red"),
         "cancelled": ("[yellow]–[/yellow]",    "cancelled", "yellow"),
@@ -301,7 +315,7 @@ def _show_pipeline_status(state_store: PipelineStateStore) -> None:
         return
 
     rows = {row["name"]: row for row in state["phases"]}
-    done_count = sum(1 for r in rows.values() if r["status"] == "done")
+    done_count = sum(1 for r in rows.values() if r["status"] in COMPLETED_PHASE_STATUSES)
     total = len(PHASE_OUTPUTS)
 
     t = Table(box=rich_box.SIMPLE, show_header=False, padding=(0, 1))
@@ -327,11 +341,7 @@ def _show_pipeline_status(state_store: PipelineStateStore) -> None:
 
 
 def _output_exists(path: Path | None) -> bool:
-    if path is None:
-        return False
-    if path.is_dir():
-        return any(path.rglob("*"))
-    return path.exists() and path.stat().st_size > 10
+    return phase_output_exists(path)
 
 
 def _fallback_classifier(text: str) -> str | None:
@@ -356,6 +366,72 @@ def _append_envelope(envelope: Envelope) -> None:
 def _is_spawn_started_message(text: str) -> bool:
     t = text.strip()
     return t.startswith("Subagent [") and " started (id: " in t
+
+
+def _is_background_handoff_progress(text: str) -> bool:
+    t = (text or "").strip()
+    return t.startswith('spawn("') or _is_spawn_started_message(t)
+
+
+def _phase_is_complete(phase: str | None) -> bool:
+    if not phase:
+        return False
+    return is_phase_complete(
+        phase,
+        hackathon_dir=HACKATHON_DIR,
+        phase_output=PHASE_OUTPUTS.get(phase),
+    )
+
+
+def _prepare_phase_run(phase: str) -> None:
+    clear_marker(HACKATHON_DIR, phase)
+
+
+def _mark_phase_complete(phase: str, trace_id: str | None) -> None:
+    path = marker_path(HACKATHON_DIR, phase)
+    if path is None:
+        return
+    write_marker(HACKATHON_DIR, phase, {"phase": phase, "status": "done", "trace_id": trace_id})
+
+
+@dataclass(slots=True)
+class SendWaitResult:
+    response: str
+    timed_out: bool = False
+    background_handoff: bool = False
+
+
+def _finalize_phase_run(
+    *,
+    phase: str,
+    trace_id: str | None,
+    result: SendWaitResult,
+    state_machine: OrchestratorStateMachine,
+) -> tuple[str | None, bool]:
+    failure_reason = detect_failure_reason(result.response, timed_out=result.timed_out)
+    primary_output_ready = _output_exists(PHASE_OUTPUTS.get(phase))
+
+    if result.background_handoff:
+        state_machine.checkpoint(phase, "running", active_task=trace_id)
+        return trace_id, True
+
+    if failure_reason:
+        state_machine.checkpoint(phase, "failed", last_error=failure_reason)
+        return None, False
+
+    if primary_output_ready:
+        _mark_phase_complete(phase, trace_id)
+
+    if _phase_is_complete(phase):
+        state_machine.checkpoint(phase, "done")
+        return None, False
+
+    state_machine.checkpoint(
+        phase,
+        "failed",
+        last_error="Phase ended without producing the completion artifact",
+    )
+    return None, False
 
 
 def _make_tracking_provider(config: Config, counter: TokenCounter):
@@ -542,7 +618,11 @@ def _reset_phase_and_downstream(phase: str, state_store: PipelineStateStore) -> 
                 row["status"] = "pending"
                 row["updated_at"] = None
                 reset.append(row["name"])
+    for name in PHASES_LIST[idx:]:
+        clear_marker(HACKATHON_DIR, name)
+    state["current_phase"] = None
     state["last_error"] = None
+    state["last_checkpoint"] = None
     state["active_task"] = None
     state_store.save(state)
     return reset
@@ -742,6 +822,7 @@ async def run_interactive(config: Config) -> None:
     turn_done = asyncio.Event()
     turn_done.set()
     turn_response: list[str] = []
+    turn_saw_background_handoff = [False]
 
     # ── Ctrl+C handling — never exits, only interrupts the current task ────────
     _processing = [False]   # mutable so the signal handler closure can read it
@@ -770,9 +851,12 @@ async def run_interactive(config: Config) -> None:
             try:
                 msg = await asyncio.wait_for(bus.consume_outbound(), timeout=1.0)
                 if msg.metadata.get("_progress"):
+                    if _is_background_handoff_progress(msg.content or ""):
+                        turn_saw_background_handoff[0] = True
                     console.print(f"  [dim]↳ {msg.content}[/dim]")
                 elif not turn_done.is_set():
                     if _is_spawn_started_message(msg.content or ""):
+                        turn_saw_background_handoff[0] = True
                         console.print(f"  [dim]↳ {msg.content}[/dim]")
                     elif msg.content:
                         # Agent sent a substantive reply — release the prompt immediately.
@@ -798,8 +882,7 @@ async def run_interactive(config: Config) -> None:
             await asyncio.sleep(4)
             if not bg_phase:
                 continue
-            output = PHASE_OUTPUTS.get(bg_phase)
-            if _output_exists(output):
+            if _phase_is_complete(bg_phase):
                 state_machine.checkpoint(bg_phase, "done")
                 finished = bg_phase
                 bg_phase = None
@@ -812,10 +895,11 @@ async def run_interactive(config: Config) -> None:
     consume_task = asyncio.create_task(_consume())
     monitor_task = asyncio.create_task(_monitor_background())
 
-    async def _send_and_wait(text: str, *, timeout_s: int = DEFAULT_PHASE_TIMEOUT_S) -> str:
+    async def _send_and_wait(text: str, *, timeout_s: int = DEFAULT_PHASE_TIMEOUT_S) -> SendWaitResult:
         _processing[0] = True
         turn_done.clear()
         turn_response.clear()
+        turn_saw_background_handoff[0] = False
         await bus.publish_inbound(InboundMessage(
             channel="cli", sender_id="user", chat_id="direct", content=text,
         ))
@@ -825,9 +909,13 @@ async def run_interactive(config: Config) -> None:
         except asyncio.TimeoutError:
             turn_done.set()
             console.print(f"[yellow]Timed out after {timeout_s}s.[/yellow]")
+            return SendWaitResult("", timed_out=True, background_handoff=turn_saw_background_handoff[0])
         finally:
             _processing[0] = False
-        return turn_response[0] if turn_response else ""
+        return SendWaitResult(
+            turn_response[0] if turn_response else "",
+            background_handoff=turn_saw_background_handoff[0],
+        )
 
     async def _send_and_wait_traced(
         text: str,
@@ -836,13 +924,13 @@ async def run_interactive(config: Config) -> None:
         command: str,
         phase: str | None,
         route_source: str | None = None,
-    ) -> str:
+    ) -> SendWaitResult:
         if command in {"/new", "/stop"}:
             return await _send_and_wait(text, timeout_s=timeout_s)
 
         # Only trace turns that actually produced a model response.
         response = await _send_and_wait(text, timeout_s=timeout_s)
-        if not response:
+        if not response.response:
             return response
 
         attrs = {
@@ -852,7 +940,7 @@ async def run_interactive(config: Config) -> None:
             "request.route_source": route_source,
             "request.timeout_s": timeout_s,
             "response.received": True,
-            "response.length": len(response),
+            "response.length": len(response.response),
         }
         with workflow_span("0xclaw.cli.turn", attrs):
             pass
@@ -922,19 +1010,22 @@ async def run_interactive(config: Config) -> None:
                     continue
 
                 if lower == "/stop":
+                    target_phase = active_phase or bg_phase
                     response = await _send_and_wait_traced(
                         "/stop",
                         timeout_s=30,
                         command=cmd,
-                        phase=active_phase,
+                        phase=target_phase,
                         route_source="slash",
                     )
-                    if active_phase:
-                        state_machine.checkpoint(active_phase, "cancelled", last_error="Cancelled by /stop")
-                        active_phase = None
-                        active_trace_id = None
-                    if response:
-                        console.print(f"[yellow]{response.strip()}[/yellow]")
+                    if target_phase:
+                        state_machine.checkpoint(target_phase, "cancelled", last_error="Cancelled by /stop")
+                    active_phase = None
+                    active_trace_id = None
+                    bg_phase = None
+                    bg_trace_id = None
+                    if response.response:
+                        console.print(f"[yellow]{response.response.strip()}[/yellow]")
                     else:
                         console.print("[yellow]⏹  Stop signal sent.[/yellow]")
                     continue
@@ -984,6 +1075,7 @@ async def run_interactive(config: Config) -> None:
                             f"[dim]Profile[/dim] {redo_profile.provider}/{redo_profile.model} "
                             f"[dim](timeout {redo_profile.timeout_s}s)[/dim]"
                         )
+                    _prepare_phase_run(redo_route.phase)
                     active_phase = redo_route.phase
                     active_trace_id = f"cli-{int(time.time())}-{redo_route.phase}"
                     state_machine.checkpoint(redo_route.phase, "running", active_task=active_trace_id)
@@ -1010,20 +1102,19 @@ async def run_interactive(config: Config) -> None:
                         phase=redo_route.phase,
                         route_source=redo_route.source,
                     )
-                    output = PHASE_OUTPUTS.get(redo_route.phase)
-                    if _output_exists(output):
-                        state_machine.checkpoint(redo_route.phase, "done")
-                        active_phase = None
-                        active_trace_id = None
-                    else:
-                        bg_phase = active_phase
-                        bg_trace_id = active_trace_id
-                        active_phase = None
-                        active_trace_id = None
-                    if response:
+                    bg_trace_id, handed_off = _finalize_phase_run(
+                        phase=redo_route.phase,
+                        trace_id=active_trace_id,
+                        result=response,
+                        state_machine=state_machine,
+                    )
+                    bg_phase = active_phase if handed_off else None
+                    active_phase = None
+                    active_trace_id = None
+                    if response.response:
                         console.print()
                         console.print("[bold #fbbf24]🦀  0xClaw[/bold #fbbf24]")
-                        console.print(Markdown(response))
+                        console.print(Markdown(response.response))
                         tok = token_counter.fmt()
                         if tok:
                             console.print(f"  [dim]{tok}[/dim]")
@@ -1042,8 +1133,8 @@ async def run_interactive(config: Config) -> None:
                     removed = _reset_hackathon_outputs() + _reset_workspace_runtime_outputs()
                     active_phase = None
                     active_trace_id = None
-                    if response:
-                        console.print(f"[green]✓[/green]  {response.strip()}")
+                    if response.response:
+                        console.print(f"[green]✓[/green]  {response.response.strip()}")
                     else:
                         console.print("[green]✓  Fresh session ready.[/green]")
                     if removed:
@@ -1055,6 +1146,11 @@ async def run_interactive(config: Config) -> None:
                     decision = session_control.get_resume_decision()
                     if not decision.command:
                         console.print(f"[green]✓[/green] {decision.reason}")
+                        continue
+                    if bg_phase and decision.phase == bg_phase:
+                        console.print(
+                            f"[dim]Phase [#7c3aed]{bg_phase}[/#7c3aed] is already running in the background.[/dim]"
+                        )
                         continue
                     console.print(f"[dim]{decision.reason}[/dim]")
                     cmd = decision.command
@@ -1074,6 +1170,7 @@ async def run_interactive(config: Config) -> None:
                             f"[dim]Profile[/dim] {profile.provider}/{profile.model} "
                             f"[dim](timeout {profile.timeout_s}s)[/dim]"
                         )
+                    _prepare_phase_run(route.phase)
                     active_phase = route.phase
                     active_trace_id = f"cli-{int(time.time())}-{route.phase}"
                     state_machine.checkpoint(route.phase, "running", active_task=active_trace_id)
@@ -1100,20 +1197,19 @@ async def run_interactive(config: Config) -> None:
                         phase=route.phase,
                         route_source=route.source,
                     )
-                    output = PHASE_OUTPUTS.get(route.phase)
-                    if _output_exists(output):
-                        state_machine.checkpoint(route.phase, "done")
-                        active_phase = None
-                        active_trace_id = None
-                    else:
-                        bg_phase = active_phase
-                        bg_trace_id = active_trace_id
-                        active_phase = None
-                        active_trace_id = None
-                    if response:
+                    bg_trace_id, handed_off = _finalize_phase_run(
+                        phase=route.phase,
+                        trace_id=active_trace_id,
+                        result=response,
+                        state_machine=state_machine,
+                    )
+                    bg_phase = active_phase if handed_off else None
+                    active_phase = None
+                    active_trace_id = None
+                    if response.response:
                         console.print()
                         console.print("[bold #fbbf24]🦀  0xClaw[/bold #fbbf24]")
-                        console.print(Markdown(response))
+                        console.print(Markdown(response.response))
                         tok = token_counter.fmt()
                         if tok:
                             console.print(f"  [dim]{tok}[/dim]")
@@ -1157,6 +1253,7 @@ async def run_interactive(config: Config) -> None:
                         f"[dim](timeout {profile.timeout_s}s)[/dim]"
                     )
 
+                _prepare_phase_run(route.phase)
                 active_phase = route.phase
                 active_trace_id = f"cli-{int(time.time())}-{route.phase}"
                 state_machine.checkpoint(route.phase, "running", active_task=active_trace_id)
@@ -1184,17 +1281,15 @@ async def run_interactive(config: Config) -> None:
                     phase=route.phase,
                     route_source=route.source,
                 )
-                output = PHASE_OUTPUTS.get(route.phase)
-                if _output_exists(output):
-                    state_machine.checkpoint(route.phase, "done")
-                    active_phase = None
-                    active_trace_id = None
-                else:
-                    # Sub-agent still running — hand off to background monitor.
-                    bg_phase = active_phase
-                    bg_trace_id = active_trace_id
-                    active_phase = None
-                    active_trace_id = None
+                bg_trace_id, handed_off = _finalize_phase_run(
+                    phase=route.phase,
+                    trace_id=active_trace_id,
+                    result=response,
+                    state_machine=state_machine,
+                )
+                bg_phase = active_phase if handed_off else None
+                active_phase = None
+                active_trace_id = None
             else:
                 response = await _send_and_wait_traced(
                     user_input,
@@ -1203,10 +1298,10 @@ async def run_interactive(config: Config) -> None:
                     route_source="none",
                 )
 
-            if response:
+            if response.response:
                 console.print()
                 console.print("[bold #fbbf24]🦀  0xClaw[/bold #fbbf24]")
-                console.print(Markdown(response))
+                console.print(Markdown(response.response))
                 tok = token_counter.fmt()
                 if tok:
                     console.print(f"  [dim]{tok}[/dim]")

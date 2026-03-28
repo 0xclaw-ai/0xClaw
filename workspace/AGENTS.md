@@ -99,6 +99,14 @@ Read tasks.json. For each epic with priority "critical" or "high":
 - Apply `tdd-workflow` inside each coder execution.
 - Apply `coding-standards` before marking each task done.
 
+Completion rule for Phase 5:
+- Do not treat partial files in `hackathon/project/` as coding completion.
+- Do not treat a started sub-agent, partial implementation, or intermediate progress update as coding completion.
+- Keep Phase 5 in progress until all required `critical` and `high` epics in `hackathon/tasks.json` are completed, or explicitly deferred with a written reason.
+- If a spawned coder is still running, explicitly say coding is still in progress and do not imply completion.
+- When unsure whether coding is complete, prefer reporting "still in progress" over "complete".
+- Only report a final coding completion summary after implementation scope has actually been finished.
+
 ### Phase 6 — Testing
 Trigger cues:
 - "phase 6"
@@ -116,6 +124,14 @@ Output:
 - `hackathon/test_results.json`
 
 If status is "fail", spawn targeted fix agents using `coder` (+ `tdd-workflow`).
+
+Execution rule for Phase 6:
+- Do not treat waiting, polling, repeated `ls`, or `sleep` loops as valid testing work.
+- Do not use `spawn()` while executing the testing phase itself.
+- Do not modify implementation files under `hackathon/project/` during testing.
+- Run the available validation commands immediately and summarize the results.
+- If dependencies are missing, tests cannot run, or validation is only partial, still write `hackathon/test_results.json` with a clear `status` and explanation, then stop.
+- Prefer producing a partial or failed testing report over getting stuck waiting for more project changes.
 
 ### Phase 7 — Documentation
 Trigger cues:
