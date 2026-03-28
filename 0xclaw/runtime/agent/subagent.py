@@ -143,7 +143,7 @@ class SubagentManager:
             ]
 
             # Run agent loop (limited iterations)
-            max_iterations = 15
+            max_iterations = 200
             iteration = 0
             final_result: str | None = None
 
