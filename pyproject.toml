@@ -11,7 +11,6 @@ keywords = ["ai", "agent", "hackathon", "openclaw"]
 
 dependencies = [
     "python-telegram-bot>=21.0,<23.0",
-    "anyway-sdk>=0.0.6",
     "prompt-toolkit>=3.0.50,<4.0.0",
     "rich>=14.0.0,<15.0.0",
     "typer>=0.12.0,<1.0.0",
@@ -30,9 +29,6 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-sponsors = [
-    "virtuals-sdk>=0.1.0",
-]
 dev = [
     "ruff>=0.1.0",
 ]

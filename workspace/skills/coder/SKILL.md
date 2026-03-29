@@ -67,7 +67,7 @@ When all files are written, simply stop. Do NOT call message() to report status 
 
 ---
 
-## Sponsor Integration Patterns
+## Integration Pattern
 
 ### FLock.io (PRIMARY inference — always use this)
 ```python
@@ -93,22 +93,6 @@ async def flock_complete(prompt: str, system: str = "") -> str:
     return response.choices[0].message.content
 ```
 
-### Virtual Protocol (agent identity)
-```python
-from virtuals_sdk import game
-
-agent = game.Agent(
-    api_key=os.environ["VIRTUALS_API_KEY"],
-    goal="...",
-    description="...",
-    world_info="UK AI Hackathon EP4, March 2026",
-)
-```
-
-### Unibase (persistent on-chain memory)
-```python
-# Required env vars: MEMBASE_ID, MEMBASE_ACCOUNT, MEMBASE_SECRET_KEY
-```
 
 ---
 

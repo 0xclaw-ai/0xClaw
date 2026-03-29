@@ -55,9 +55,6 @@ from orchestration.state import (
     PipelineStateStore,
 )
 from orchestration.write_guard import build_phase_write_guard, install_phase_write_guards
-from tools.virtuals_tool import VirtualsTool
-from tools.unibase_tool import UnibaseTool
-from observability.anyway import init_anyway_from_env, workflow_span
 
 # ── globals ────────────────────────────────────────────────────────────────────
 console = Console()
@@ -764,7 +761,6 @@ async def run_interactive(config: Config) -> None:
     bg_phase: str | None = None      # phase handed off to background monitor
     bg_trace_id: str | None = None
     token_counter = TokenCounter()
-    init_anyway_from_env()
 
     # ── agent setup ────────────────────────────────────────────────────────────
     bus = MessageBus()
@@ -793,8 +789,6 @@ async def run_interactive(config: Config) -> None:
         cron_service=cron,
         session_manager=session_manager,
     )
-    agent.tools.register(VirtualsTool())
-    agent.tools.register(UnibaseTool())
     write_guard = build_phase_write_guard(
         workspace=WORKSPACE,
         state_machine=state_machine,
@@ -942,8 +936,6 @@ async def run_interactive(config: Config) -> None:
             "response.received": True,
             "response.length": len(response.response),
         }
-        with workflow_span("0xclaw.cli.turn", attrs):
-            pass
         return response
 
     try:
@@ -1354,9 +1346,6 @@ async def run_gateway(config: Config, *, port: int | None = None, verbose: bool 
         mcp_servers=config.tools.mcp_servers,
         channels_config=config.channels,
     )
-    agent.tools.register(VirtualsTool())
-    agent.tools.register(UnibaseTool())
-
     async def on_cron_job(job) -> str | None:
         """Execute a scheduled job through the main agent loop."""
         reminder_note = (
