@@ -12,8 +12,6 @@
 
 **🏆 1st Place Winner – Z.ai Bounty @ UK AI Agent Hackathon × OpenClaw 🦞.**
 
-**🏆 Finalist Winner – Anyway Bounty @ UK AI Agent Hackathon × OpenClaw 🦞.**
-
 **Give 0xClaw a hackathon URL — it researches, codes, tests, and submits, all on its own.**
 
 <br />
@@ -23,7 +21,6 @@
 [![License](https://img.shields.io/badge/License-MIT-22c55e?style=flat-square)](./LICENSE)
 [![FLock.io](https://img.shields.io/badge/FLock.io-inference-7c3aed?style=flat-square)](https://flock.io)
 [![Z.ai](https://img.shields.io/badge/Z.ai-inference-5b6cf9?style=flat-square)](http://z.ai)
-[![Anyway](https://img.shields.io/badge/Anyway-observability-0ea5e9?style=flat-square)](https://anyway.sh)
 
 </div>
 
@@ -132,12 +129,6 @@ Inference powered by **FLock.io** and **Z.AI**
 </table>
 </div>
 
-## 📡 Observability
-
-Set `ANYWAY_API_KEY` to stream traces to Anyway. Token usage is shown live after every agent response.
-
----
-
 ## 💬 Channels
 
 The runtime has built-in support for 10 messaging platforms (2/10 now passed solid test). Enable any via `config.json` + one env var:
@@ -153,18 +144,6 @@ Telegram uses long polling — no public IP or webhook required.
 Configure it in `0xclaw/config/config.json` under `channels.telegram`, then run `0xclaw gateway`.
 
 WhatsApp uses a local bridge process. Configure `channels.whatsapp`, run `0xclaw whatsapp login` to scan the QR code, then start `0xclaw gateway`. Bridge assets and auth state are stored under `~/.0xclaw/`.
-
----
-
-## 🏆 Sponsors
-
-<div align="center">
-<table>
-<tr><td><b>Gold</b></td><td>FLock.io · Z.AI · Sierra.ai · Cantor8</td></tr>
-<tr><td><b>Silver</b></td><td>Lovable · SuperCell · Animoca Brands · Anyway · The Compression Company · AfterQuery</td></tr>
-<tr><td><b>Bronze</b></td><td>Virtuals Protocol · Unibase</td></tr>
-</table>
-</div>
 
 ---
 

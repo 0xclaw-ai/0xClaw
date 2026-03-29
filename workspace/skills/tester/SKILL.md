@@ -1,13 +1,13 @@
 ---
 name: tester
-description: Test the generated project, validate sponsor integrations, and produce a quality report
+description: Test the generated project, validate the implementation, and produce a quality report
 metadata: {"openclaw": {"always": false}}
 ---
 
 # Tester Agent Skill
 
 ## Purpose
-Validate the generated project: syntax, imports, unit tests, and sponsor API connectivity.
+Validate the generated project: syntax, imports, unit tests, and runtime readiness.
 Produce a structured report. **Do not write new code or tests.**
 
 ## When to Use
@@ -57,10 +57,9 @@ exec("cd hackathon/project && python -m pytest --tb=short -q 2>&1 | tail -30")
 ```
 If no test files exist, record `tests_total: 0` and move on — do NOT write any test files.
 
-**Step 6** — Sponsor API smoke checks (env vars only, no real API calls):
-- FLock: `exec("python -c \"import os; print('ok' if os.environ.get('FLOCK_API_KEY') else 'missing')\"")`
-- Virtuals: check `VIRTUALS_API_KEY`
-- Unibase: check `MEMBASE_ID` and `MEMBASE_ACCOUNT`
+**Step 6** — Runtime readiness checks:
+- Check whether required env vars for the generated app are documented
+- Record missing configuration as issues instead of blocking forever
 
 **Step 7** — Write `hackathon/test_results.json`:
 ```json
@@ -76,10 +75,10 @@ If no test files exist, record `tests_total: 0` and move on — do NOT write any
     "tests_failed": 0,
     "test_coverage_estimate": "none|partial|good"
   },
-  "sponsor_integrations": {
-    "flock": {"configured": true, "reachable": null, "notes": "string"},
-    "virtuals": {"configured": false, "reachable": null, "notes": "string"},
-    "unibase": {"configured": false, "reachable": null, "notes": "string"}
+  "runtime_readiness": {
+    "env_documented": true,
+    "env_missing": ["string"],
+    "notes": "string"
   },
   "issues": [
     {
