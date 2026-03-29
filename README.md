@@ -34,7 +34,6 @@
 ```bash
 conda create -n 0xclaw python=3.11 -y
 conda activate 0xclaw
-pip install -r requirements.txt
 pip install -e .
 cp .env.example .env
 ./scripts/verify_setup.sh
@@ -49,8 +48,9 @@ python launcher/__main__.py --help
 0xclaw --help
 ```
 
-Use `pip install -r requirements.txt` to install the runtime dependencies and
-`pip install -e .` to install the local CLI in editable mode.
+`pip install -e .` installs both the runtime dependencies and the local CLI in editable mode.
+If you also want development tooling such as Ruff, use `pip install -e .[dev]`.
+`requirements.txt` is kept as a compatibility mirror of the same runtime dependency set.
 
 ## 🚀 Launch
 
