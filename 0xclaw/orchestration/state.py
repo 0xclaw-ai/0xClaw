@@ -39,6 +39,8 @@ PHASE_ALLOWED_WRITE_DIRS: dict[str, tuple[str, ...]] = {
     "doc": ("hackathon/submission", "hackathon/pipeline_state.json", "hackathon/progress.md"),
 }
 
+COMPLETED_PHASE_STATUSES = frozenset({"done", "complete"})
+
 
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -77,8 +79,8 @@ class PipelineStateStore:
 
     def set_phase_status(self, phase: str, status: str, *, last_error: str | None = None, active_task: str | None = None) -> dict:
         state = self.load()
-        state["current_phase"] = phase
-        state["active_task"] = active_task
+        state["current_phase"] = phase if status == "running" else None
+        state["active_task"] = active_task if status == "running" else None
         state["last_error"] = last_error
         for row in state["phases"]:
             if row["name"] == phase:
@@ -87,7 +89,6 @@ class PipelineStateStore:
                 break
         if status == "done":
             state["last_checkpoint"] = phase
-            state["active_task"] = None
         if status in {"failed", "cancelled"}:
             state["active_task"] = None
         self.save(state)
@@ -117,7 +118,7 @@ class OrchestratorStateMachine:
         status_map = {row["name"]: row["status"] for row in state["phases"]}
 
         for dep in PHASE_DEPENDENCIES[phase]:
-            if status_map.get(dep) != "done":
+            if status_map.get(dep) not in COMPLETED_PHASE_STATUSES:
                 errors.append(f"Dependency not complete: {dep}")
 
         for req in REQUIRED_ARTIFACTS[phase]:

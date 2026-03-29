@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from .state import PHASES, PipelineStateStore
+from .state import COMPLETED_PHASE_STATUSES, PHASES, PipelineStateStore
 
 
 PHASE_TO_COMMAND = {
@@ -37,18 +37,23 @@ class SessionControl:
         status_map = {row["name"]: row["status"] for row in state["phases"]}
 
         current = state.get("current_phase")
-        if current in PHASES and status_map.get(current) in {"running", "cancelled", "failed"}:
+        if current in PHASES and status_map.get(current) == "running":
             return ResumeDecision(current, PHASE_TO_COMMAND[current], f"Resume current phase: {current}")
+
+        for status, label in (("failed", "Retry failed phase"), ("cancelled", "Resume cancelled phase")):
+            for phase in PHASES:
+                if status_map.get(phase) == status:
+                    return ResumeDecision(phase, PHASE_TO_COMMAND[phase], f"{label}: {phase}")
 
         checkpoint = state.get("last_checkpoint")
         if checkpoint in PHASES:
             idx = PHASES.index(checkpoint)
             for p in PHASES[idx + 1:]:
-                if status_map.get(p) != "done":
+                if status_map.get(p) not in COMPLETED_PHASE_STATUSES:
                     return ResumeDecision(p, PHASE_TO_COMMAND[p], f"Resume from next phase after {checkpoint}")
 
         for p in PHASES:
-            if status_map.get(p) != "done":
+            if status_map.get(p) not in COMPLETED_PHASE_STATUSES:
                 return ResumeDecision(p, PHASE_TO_COMMAND[p], "Resume from first incomplete phase")
 
         return ResumeDecision(None, None, "All phases are complete")

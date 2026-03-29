@@ -19,6 +19,9 @@ After coder agents have finished implementing. Requires `hackathon/project/` to 
 **Do NOT write test files or any new code** — your only output is `hackathon/test_results.json`.
 **Do NOT call message()** — just write the report file and stop.
 Also: DO NOT call web_search — it is not configured.
+**Do NOT use `sleep`, polling loops, or repeated `ls`/`list_dir` checks as a testing strategy.**
+**Do NOT modify files under `hackathon/project/` during testing.**
+If validation is incomplete, blocked, or partially successful, write `hackathon/test_results.json` anyway with `status: "partial"` or `status: "fail"` and explain why.
 
 ---
 
@@ -29,6 +32,7 @@ Also: DO NOT call web_search — it is not configured.
 list_dir("hackathon/project/")
 ```
 Read `hackathon/project/requirements.txt` if it exists.
+After the initial discovery pass, avoid repeated directory polling unless a specific command just created a new artifact you need to inspect immediately.
 
 **Step 2** — Install dependencies:
 ```
@@ -92,6 +96,7 @@ If no test files exist, record `tests_total: 0` and move on — do NOT write any
 ```
 
 Your task is complete once `hackathon/test_results.json` is written. Stop immediately after.
+If you cannot complete every validation step, write the best available report with explicit blockers and stop immediately after.
 
 ## Output File
 - `hackathon/test_results.json`

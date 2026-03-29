@@ -59,7 +59,7 @@ CONTINUATION_PROMPT = (
     "Complete only the task that was requested — do not start any other phases. "
     "Write the output file now."
 )
-MAX_TURNS = 50
+MAX_TURNS = 200
 IDLE_NUDGE_TIMEOUT_S = 30
 
 
