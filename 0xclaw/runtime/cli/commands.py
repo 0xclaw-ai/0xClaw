@@ -200,6 +200,7 @@ def onboard():
 
 def _make_provider(config: Config):
     """Create the appropriate LLM provider from config."""
+    from runtime.providers.acp_provider import ACPProvider
     from runtime.providers.custom_provider import CustomProvider
     from runtime.providers.litellm_provider import LiteLLMProvider
     from runtime.providers.openai_codex_provider import OpenAICodexProvider
@@ -207,6 +208,9 @@ def _make_provider(config: Config):
     model = config.agents.defaults.model
     provider_name = config.get_provider_name(model)
     p = config.get_provider(model)
+
+    if provider_name == "acp":
+        return ACPProvider.from_config(config, default_model=model)
 
     # OpenAI Codex (OAuth)
     if provider_name == "openai_codex" or model.startswith("openai-codex/"):
@@ -291,6 +295,7 @@ def gateway(
         session_manager=session_manager,
         mcp_servers=config.tools.mcp_servers,
         channels_config=config.channels,
+        subagents_config=config.subagents,
     )
 
     # Set cron callback (needs agent)
@@ -463,6 +468,7 @@ def agent(
         restrict_to_workspace=config.tools.restrict_to_workspace,
         mcp_servers=config.tools.mcp_servers,
         channels_config=config.channels,
+        subagents_config=config.subagents,
     )
 
     # Show spinner when logs are off (no output to miss); skip when logs are on
@@ -957,6 +963,7 @@ def cron_run(
         restrict_to_workspace=config.tools.restrict_to_workspace,
         mcp_servers=config.tools.mcp_servers,
         channels_config=config.channels,
+        subagents_config=config.subagents,
     )
 
     store_path = get_data_dir() / "cron" / "jobs.json"

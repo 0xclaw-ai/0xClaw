@@ -7,6 +7,8 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
+from .phase_completion import output_exists
+
 PHASES = ("research", "idea", "selection", "planning", "coding", "testing", "doc")
 
 PHASE_DEPENDENCIES: dict[str, tuple[str, ...]] = {
@@ -27,6 +29,16 @@ REQUIRED_ARTIFACTS: dict[str, tuple[str, ...]] = {
     "coding": ("tasks.json", "plan.md"),
     "testing": ("project",),
     "doc": ("test_results.json",),
+}
+
+PHASE_PRIMARY_OUTPUTS: dict[str, str] = {
+    "research": "context.json",
+    "idea": "ideas.json",
+    "selection": "selected_idea.json",
+    "planning": "plan.md",
+    "coding": "project",
+    "testing": "test_results.json",
+    "doc": "submission/README.md",
 }
 
 PHASE_ALLOWED_WRITE_DIRS: dict[str, tuple[str, ...]] = {
@@ -119,6 +131,12 @@ class OrchestratorStateMachine:
 
         for dep in PHASE_DEPENDENCIES[phase]:
             if status_map.get(dep) not in COMPLETED_PHASE_STATUSES:
+                primary_output = PHASE_PRIMARY_OUTPUTS.get(dep)
+                dep_output = self.hackathon_dir / primary_output if primary_output else None
+                if dep_output is not None and output_exists(dep_output):
+                    self.store.set_phase_status(dep, "done")
+                    status_map[dep] = "done"
+                    continue
                 errors.append(f"Dependency not complete: {dep}")
 
         for req in REQUIRED_ARTIFACTS[phase]:

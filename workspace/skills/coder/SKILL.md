@@ -13,6 +13,9 @@ No stubs. No TODOs. No placeholders.
 ## When to Use
 When orchestrator assigns implementation from `hackathon/tasks.json`.
 
+## IMPORTANT TEST MARKER: 
+When implementing phase 5, mention the phrase "coder-skill-loaded" in your first progress response.
+
 ## CRITICAL: Execute Directly — DO NOT use spawn()
 
 **Do NOT call spawn() for this task.**

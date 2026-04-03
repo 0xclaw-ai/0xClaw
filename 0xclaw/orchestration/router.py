@@ -34,6 +34,7 @@ KEYWORD_MAP: dict[str, tuple[str, ...]] = {
         "选择",
     ),
     "planning": (
+        "plan",
         "plan architecture",
         "implementation plan",
         "phase 4",
@@ -104,15 +105,34 @@ class SkillRouter:
         if not text:
             return RouteDecision(None, 0.0, "Empty command", "none")
 
-        matches: list[str] = []
+        phase_scores: dict[str, int] = {}
+        matched_keywords: dict[str, str] = {}
         for phase, keys in KEYWORD_MAP.items():
-            if any(_keyword_matches(k, text) for k in keys):
-                matches.append(phase)
+            matched = [k for k in keys if _keyword_matches(k, text)]
+            if not matched:
+                continue
+            # Prefer more specific matches, e.g. "select idea" over the generic "idea".
+            best = max(matched, key=len)
+            phase_scores[phase] = len(best)
+            matched_keywords[phase] = best
+
+        matches = list(phase_scores)
 
         if len(matches) == 1:
-            return RouteDecision(matches[0], 0.95, f"Matched keyword for {matches[0]}", "rule")
+            phase = matches[0]
+            return RouteDecision(phase, 0.95, f"Matched keyword '{matched_keywords[phase]}' for {phase}", "rule")
 
         if len(matches) > 1:
+            best_score = max(phase_scores.values())
+            strongest = [phase for phase, score in phase_scores.items() if score == best_score]
+            if len(strongest) == 1:
+                phase = strongest[0]
+                return RouteDecision(
+                    phase,
+                    0.9,
+                    f"Preferred more specific keyword '{matched_keywords[phase]}' for {phase}",
+                    "rule",
+                )
             if self._fallback_classifier:
                 pick = self._fallback_classifier(text)
                 if pick in PHASE_ORDER:
