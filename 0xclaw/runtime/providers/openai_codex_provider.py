@@ -18,7 +18,7 @@ except ImportError:  # optional dependency for Codex OAuth flows
 from runtime.providers.base import LLMProvider, LLMResponse, ToolCallRequest
 
 DEFAULT_CODEX_URL = "https://chatgpt.com/backend-api/codex/responses"
-DEFAULT_ORIGINATOR = "nanobot"
+DEFAULT_ORIGINATOR = "0xclaw"
 
 
 class OpenAICodexProvider(LLMProvider):

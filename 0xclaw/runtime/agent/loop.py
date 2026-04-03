@@ -12,9 +12,11 @@ from typing import TYPE_CHECKING, Any, Awaitable, Callable
 
 from loguru import logger
 
+from runtime.agent.coding_executor import ClaudeCodeCodingExecutor
 from runtime.agent.context import ContextBuilder
 from runtime.agent.memory import MemoryStore
 from runtime.agent.subagent import SubagentManager
+from runtime.agent.subagent_backends import resolve_phase_backend
 from runtime.agent.tools.cron import CronTool
 from runtime.agent.tools.filesystem import EditFileTool, ListDirTool, ReadFileTool, WriteFileTool
 from runtime.agent.tools.message import MessageTool
@@ -28,7 +30,7 @@ from runtime.providers.base import LLMProvider
 from runtime.session.manager import Session, SessionManager
 
 if TYPE_CHECKING:
-    from runtime.config.schema import ChannelsConfig, ExecToolConfig
+    from runtime.config.schema import ChannelsConfig, ExecToolConfig, SubagentsConfig
     from runtime.cron.service import CronService
 
 
@@ -65,6 +67,7 @@ class AgentLoop:
         session_manager: SessionManager | None = None,
         mcp_servers: dict | None = None,
         channels_config: ChannelsConfig | None = None,
+        subagents_config: "SubagentsConfig | None" = None,
     ):
         from runtime.config.schema import ExecToolConfig
         self.bus = bus
@@ -82,6 +85,7 @@ class AgentLoop:
         self.exec_config = exec_config or ExecToolConfig()
         self.cron_service = cron_service
         self.restrict_to_workspace = restrict_to_workspace
+        self._subagents_config = subagents_config
 
         self.context = ContextBuilder(workspace)
         self.sessions = session_manager or SessionManager(workspace)
@@ -98,6 +102,7 @@ class AgentLoop:
             web_proxy=web_proxy,
             exec_config=self.exec_config,
             restrict_to_workspace=restrict_to_workspace,
+            subagents_config=subagents_config,
         )
 
         self._running = False
@@ -152,12 +157,41 @@ class AgentLoop:
         finally:
             self._mcp_connecting = False
 
-    def _set_tool_context(self, channel: str, chat_id: str, message_id: str | None = None) -> None:
+    def _set_tool_context(
+        self,
+        channel: str,
+        chat_id: str,
+        message_id: str | None = None,
+        phase: str | None = None,
+    ) -> None:
         """Update context for all tools that need routing info."""
         for name in ("message", "spawn", "cron"):
             if tool := self.tools.get(name):
                 if hasattr(tool, "set_context"):
                     tool.set_context(channel, chat_id, *([message_id] if name == "message" else []))
+                if name == "spawn" and hasattr(tool, "set_phase_context"):
+                    tool.set_phase_context(phase)
+
+    def _set_spawn_policy(self, *, phase: str | None, force_default_provider: bool = False) -> None:
+        """Restrict spawn() when coding runs through a direct executor."""
+        spawn_tool = self.tools.get("spawn")
+        if spawn_tool is None or not hasattr(spawn_tool, "set_execution_policy"):
+            return
+
+        spawn_allowed = True
+        reason = None
+        if (
+            phase == "coding"
+            and self._subagents_config is not None
+            and self._subagents_config.coding.backend == "claude_code"
+            and not force_default_provider
+        ):
+            spawn_allowed = False
+            reason = (
+                "spawn() is disabled during Phase 5 while the active coding backend is "
+                "Claude Code direct-executor mode. Wait for an explicit fallback before spawning coders."
+            )
+        spawn_tool.set_execution_policy(spawn_allowed=spawn_allowed, reason=reason)
 
     @staticmethod
     def _strip_think(text: str | None) -> str | None:
@@ -181,80 +215,183 @@ class AgentLoop:
         self,
         initial_messages: list[dict],
         on_progress: Callable[..., Awaitable[None]] | None = None,
+        phase: str | None = None,
+        force_default_provider: bool = False,
     ) -> tuple[str | None, list[str], list[dict]]:
         """Run the agent iteration loop. Returns (final_content, tools_used, messages)."""
         messages = initial_messages
         iteration = 0
         final_content = None
         tools_used: list[str] = []
+        backend_provider = self.provider
+        current_backend = "default_llm"
+        self._set_spawn_policy(phase=phase, force_default_provider=force_default_provider)
 
-        while iteration < self.max_iterations:
-            iteration += 1
-
-            response = await self.provider.chat(
-                messages=messages,
-                tools=self.tools.get_definitions(),
-                model=self.model,
-                temperature=self.temperature,
-                max_tokens=self.max_tokens,
-                reasoning_effort=self.reasoning_effort,
+        if self._subagents_config is not None and not force_default_provider:
+            backend_decision = resolve_phase_backend(
+                phase=phase,
+                default_provider=self.provider,
+                default_model=self.model,
+                config=self._subagents_config,
             )
-
-            if response.has_tool_calls:
-                if on_progress:
-                    clean = self._strip_think(response.content)
-                    if clean:
-                        await on_progress(clean)
-                    await on_progress(self._tool_hint(response.tool_calls), tool_hint=True)
-
-                tool_call_dicts = [
-                    {
-                        "id": tc.id,
-                        "type": "function",
-                        "function": {
-                            "name": tc.name,
-                            "arguments": json.dumps(tc.arguments, ensure_ascii=False)
-                        }
-                    }
-                    for tc in response.tool_calls
-                ]
-                messages = self.context.add_assistant_message(
-                    messages, response.content, tool_call_dicts,
-                    reasoning_content=response.reasoning_content,
-                    thinking_blocks=response.thinking_blocks,
-                )
-
-                for tool_call in response.tool_calls:
-                    tools_used.append(tool_call.name)
-                    args_str = json.dumps(tool_call.arguments, ensure_ascii=False)
-                    logger.info("Tool call: {}({})", tool_call.name, args_str[:200])
-                    result = await self.tools.execute(tool_call.name, tool_call.arguments)
-                    messages = self.context.add_tool_result(
-                        messages, tool_call.id, tool_call.name, result
+            backend_provider = backend_decision.provider
+            current_backend = backend_decision.actual_backend
+            if phase == "coding" and on_progress:
+                if backend_decision.fallback_reason:
+                    await on_progress(
+                        f"[coding backend] requested={backend_decision.requested_backend} "
+                        f"actual={backend_decision.actual_backend} fallback={backend_decision.fallback_reason}"
                     )
-            else:
-                clean = self._strip_think(response.content)
-                # Don't persist error responses to session history — they can
-                # poison the context and cause permanent 400 loops (#1303).
-                if response.finish_reason == "error":
-                    logger.error("LLM returned error: {}", (clean or "")[:200])
-                    final_content = clean or "Sorry, I encountered an error calling the AI model."
-                    break
-                messages = self.context.add_assistant_message(
-                    messages, clean, reasoning_content=response.reasoning_content,
-                    thinking_blocks=response.thinking_blocks,
-                )
-                final_content = clean
-                break
+                else:
+                    await on_progress(
+                        f"[coding backend] requested={backend_decision.requested_backend} "
+                        f"actual={backend_decision.actual_backend}"
+                    )
 
-        if final_content is None and iteration >= self.max_iterations:
-            logger.warning("Max iterations ({}) reached", self.max_iterations)
-            final_content = (
-                f"I reached the maximum number of tool call iterations ({self.max_iterations}) "
-                "without completing the task. You can try breaking the task into smaller steps."
-            )
+        try:
+            while iteration < self.max_iterations:
+                iteration += 1
+
+                response = await backend_provider.chat(
+                    messages=messages,
+                    tools=self.tools.get_definitions(),
+                    model=self.model,
+                    temperature=self.temperature,
+                    max_tokens=self.max_tokens,
+                    reasoning_effort=self.reasoning_effort,
+                )
+
+                if phase == "coding" and current_backend != "default_llm" and (
+                    response.finish_reason == "error" or not response.has_tool_calls
+                ):
+                    fallback_reason = "unsupported tool-driving behavior / no executable tool calls"
+                    if response.finish_reason == "error":
+                        fallback_reason = response.content or "backend returned an error response"
+                    logger.warning(
+                        "Phase backend fallback during execution: {} -> default_llm ({})",
+                        current_backend, fallback_reason,
+                    )
+                    if on_progress:
+                        await on_progress(
+                            f"[coding backend] fallback during execution: "
+                            f"{current_backend} -> default_llm ({fallback_reason})"
+                        )
+                    current_backend = "default_llm"
+                    backend_provider = self.provider
+                    messages = list(initial_messages)
+                    iteration = 0
+                    continue
+
+                if response.has_tool_calls:
+                    if on_progress:
+                        clean = self._strip_think(response.content)
+                        if clean:
+                            await on_progress(clean)
+                        await on_progress(self._tool_hint(response.tool_calls), tool_hint=True)
+
+                    tool_call_dicts = [
+                        {
+                            "id": tc.id,
+                            "type": "function",
+                            "function": {
+                                "name": tc.name,
+                                "arguments": json.dumps(tc.arguments, ensure_ascii=False)
+                            }
+                        }
+                        for tc in response.tool_calls
+                    ]
+                    messages = self.context.add_assistant_message(
+                        messages, response.content, tool_call_dicts,
+                        reasoning_content=response.reasoning_content,
+                        thinking_blocks=response.thinking_blocks,
+                    )
+
+                    for tool_call in response.tool_calls:
+                        tools_used.append(tool_call.name)
+                        args_str = json.dumps(tool_call.arguments, ensure_ascii=False)
+                        logger.info("Tool call: {}({})", tool_call.name, args_str[:200])
+                        result = await self.tools.execute(tool_call.name, tool_call.arguments)
+                        messages = self.context.add_tool_result(
+                            messages, tool_call.id, tool_call.name, result
+                        )
+                else:
+                    clean = self._strip_think(response.content)
+                    # Don't persist error responses to session history — they can
+                    # poison the context and cause permanent 400 loops (#1303).
+                    if response.finish_reason == "error":
+                        logger.error("LLM returned error: {}", (clean or "")[:200])
+                        final_content = clean or "Sorry, I encountered an error calling the AI model."
+                        break
+                    messages = self.context.add_assistant_message(
+                        messages, clean, reasoning_content=response.reasoning_content,
+                        thinking_blocks=response.thinking_blocks,
+                    )
+                    final_content = clean
+                    break
+
+            if final_content is None and iteration >= self.max_iterations:
+                logger.warning("Max iterations ({}) reached", self.max_iterations)
+                final_content = (
+                    f"I reached the maximum number of tool call iterations ({self.max_iterations}) "
+                    "without completing the task. You can try breaking the task into smaller steps."
+                )
+        finally:
+            if backend_provider is not self.provider and hasattr(backend_provider, "close"):
+                await backend_provider.close()
 
         return final_content, tools_used, messages
+
+    async def _run_external_coding_phase(
+        self,
+        initial_messages: list[dict],
+        on_progress: Callable[..., Awaitable[None]] | None = None,
+    ) -> tuple[str | None, list[str], list[dict]] | None:
+        """Execute the coding phase through Claude Code directly, with safe fallback."""
+        if self._subagents_config is None:
+            return None
+        if self._subagents_config.coding.backend != "claude_code":
+            return None
+
+        executor = ClaudeCodeCodingExecutor(
+            self._subagents_config.claude_code,
+            workspace=self.workspace,
+            default_model=self.model,
+        )
+        ok, message = executor.preflight()
+        if not ok:
+            if on_progress:
+                await on_progress(
+                    "[coding backend] requested=claude_code actual=default_llm "
+                    f"fallback={message}"
+                )
+            return await self._run_agent_loop(
+                initial_messages,
+                on_progress=on_progress,
+                phase="coding",
+                force_default_provider=True,
+            )
+
+        if on_progress:
+            await on_progress("[coding backend] requested=claude_code actual=claude_code mode=external_executor")
+
+        try:
+            result = await executor.execute_streaming(initial_messages, on_progress=on_progress)
+            messages = self.context.add_assistant_message(initial_messages, result.content)
+            return result.content, [], messages
+        except Exception as exc:  # noqa: BLE001
+            if on_progress:
+                await on_progress(
+                    "[coding backend] fallback during execution: "
+                    f"claude_code -> default_llm ({exc})"
+                )
+            return await self._run_agent_loop(
+                initial_messages,
+                on_progress=on_progress,
+                phase="coding",
+                force_default_provider=True,
+            )
+        finally:
+            await executor.close()
 
     async def run(self) -> None:
         """Run the agent loop, dispatching messages as tasks to stay responsive to /stop."""
@@ -341,13 +478,13 @@ class AgentLoop:
             logger.info("Processing system message from {}", msg.sender_id)
             key = f"{channel}:{chat_id}"
             session = self.sessions.get_or_create(key)
-            self._set_tool_context(channel, chat_id, msg.metadata.get("message_id"))
+            self._set_tool_context(channel, chat_id, msg.metadata.get("message_id"), msg.metadata.get("phase"))
             history = session.get_history(max_messages=self.memory_window)
             messages = self.context.build_messages(
                 history=history,
                 current_message=msg.content, channel=channel, chat_id=chat_id,
             )
-            final_content, _, all_msgs = await self._run_agent_loop(messages)
+            final_content, _, all_msgs = await self._run_agent_loop(messages, phase=msg.metadata.get("phase"))
             self._save_turn(session, all_msgs, 1 + len(history))
             self.sessions.save(session)
             return OutboundMessage(channel=channel, chat_id=chat_id,
@@ -411,7 +548,8 @@ class AgentLoop:
             _task = asyncio.create_task(_consolidate_and_unlock())
             self._consolidation_tasks.add(_task)
 
-        self._set_tool_context(msg.channel, msg.chat_id, msg.metadata.get("message_id"))
+        self._set_tool_context(msg.channel, msg.chat_id, msg.metadata.get("message_id"), msg.metadata.get("phase"))
+        self._set_spawn_policy(phase=msg.metadata.get("phase"))
         if message_tool := self.tools.get("message"):
             if isinstance(message_tool, MessageTool):
                 message_tool.start_turn()
@@ -432,9 +570,22 @@ class AgentLoop:
                 channel=msg.channel, chat_id=msg.chat_id, content=content, metadata=meta,
             ))
 
-        final_content, _, all_msgs = await self._run_agent_loop(
-            initial_messages, on_progress=on_progress or _bus_progress,
-        )
+        phase = msg.metadata.get("phase")
+        progress_handler = on_progress or _bus_progress
+        if phase == "coding":
+            external_result = await self._run_external_coding_phase(
+                initial_messages,
+                on_progress=progress_handler,
+            )
+        else:
+            external_result = None
+
+        if external_result is not None:
+            final_content, _, all_msgs = external_result
+        else:
+            final_content, _, all_msgs = await self._run_agent_loop(
+                initial_messages, on_progress=progress_handler, phase=phase,
+            )
 
         if final_content is None:
             final_content = "I've completed processing but have no response to give."

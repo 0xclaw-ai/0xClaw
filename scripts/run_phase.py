@@ -16,6 +16,7 @@ from runtime.agent.loop import AgentLoop
 from runtime.bus.events import InboundMessage
 from runtime.bus.queue import MessageBus
 from runtime.config.schema import Config
+from runtime.providers.acp_provider import ACPProvider
 from runtime.providers.custom_provider import CustomProvider
 from runtime.providers.litellm_provider import LiteLLMProvider
 from runtime.session.manager import SessionManager
@@ -174,6 +175,8 @@ def _make_provider(config: Config):
     model = config.agents.defaults.model
     provider_name = config.get_provider_name(model) or config.agents.defaults.provider
     p = config.get_provider(model)
+    if provider_name == "acp":
+        return ACPProvider.from_config(config, default_model=model)
     if provider_name == "custom":
         return CustomProvider(
             api_key=p.api_key if p else "no-key",
@@ -358,6 +361,7 @@ async def run(command: str, timeout_per_turn: int = 240, max_turns: int = MAX_TU
         memory_window=config.agents.defaults.memory_window,
         exec_config=config.tools.exec,
         session_manager=session_manager,
+        subagents_config=config.subagents,
     )
     write_guard = build_phase_write_guard(
         workspace=WORKSPACE,
@@ -383,6 +387,12 @@ async def run(command: str, timeout_per_turn: int = 240, max_turns: int = MAX_TU
     print(f"Command  : {command}")
     print(f"Phase    : {phase} ({route.source}, confidence={route.confidence:.2f})")
     print(f"Provider : {config.agents.defaults.provider} | {config.agents.defaults.model}")
+    if phase == "coding":
+        print(
+            "Backend  : "
+            f"{config.subagents.coding.backend} "
+            f"(fallback: {config.subagents.coding.fallback_backend})"
+        )
     print(f"Watching : {output_file or 'n/a'}")
     print(f"Trace ID : {trace_id}")
     print(f"{'='*70}\n")
@@ -401,7 +411,7 @@ async def run(command: str, timeout_per_turn: int = 240, max_turns: int = MAX_TU
                 msg = await asyncio.wait_for(bus.consume_outbound(), timeout=min(1.0, remaining))
                 deadline = time.monotonic() + timeout
                 if msg.metadata.get("_progress"):
-                    print(f"  ... {msg.content}")
+                    print(msg.content)
                 elif msg.content:
                     return msg.content
             except asyncio.TimeoutError:
@@ -410,7 +420,15 @@ async def run(command: str, timeout_per_turn: int = 240, max_turns: int = MAX_TU
                 return None
 
     async def send(text: str) -> None:
-        await bus.publish_inbound(InboundMessage(channel="cli", sender_id="user", chat_id="direct", content=text))
+        await bus.publish_inbound(
+            InboundMessage(
+                channel="cli",
+                sender_id="user",
+                chat_id="direct",
+                content=text,
+                metadata={"phase": phase},
+            )
+        )
 
     success = False
     nudge_count = 0
