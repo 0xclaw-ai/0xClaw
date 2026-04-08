@@ -264,7 +264,7 @@ def _load_config(*, validate_provider_key: bool = True) -> Config:
             env_name, help_url = key_hints.get(provider_name, ("<PROVIDER_API_KEY>", ""))
             console.print(f"[red bold]✗ {env_name} is not set for provider '{provider_name}'.[/red bold]")
             if help_url:
-                console.print(f"  [dim]Get your key at[/dim] [cyan link={help_url}]{help_url}[/cyan]")
+                console.print(f"  [dim]Get your key at[/dim] [cyan link='{help_url}']{help_url}[/cyan]")
             sys.exit(1)
 
     return config
