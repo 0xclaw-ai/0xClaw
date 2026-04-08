@@ -59,6 +59,14 @@ conda activate 0xclaw
 0xclaw whatsapp login   # start WhatsApp bridge and scan QR
 ```
 
+`0xclaw` is the canonical runtime entrypoint.
+`./scripts/start.sh` is an optional convenience wrapper that activates conda, loads `.env`, then runs `0xclaw`.
+`./scripts/verify_setup.sh` is a preflight checker.
+
+Legacy scripts:
+- `scripts/run_phase.py`: single-phase engineering/debug runner.
+- `scripts/hackathon_runner.py`: deprecated compatibility path; avoid for normal workflow.
+
 
 ## 👾 Demo Video
 
@@ -79,7 +87,7 @@ Trigger any phase with natural language — routing is automatic.
 <tr><td>1</td><td><b>research</b></td><td><code>hackathon/context.json</code></td></tr>
 <tr><td>2</td><td><b>idea</b></td><td><code>hackathon/ideas.json</code></td></tr>
 <tr><td>3</td><td><b>selection</b></td><td><code>hackathon/selected_idea.json</code></td></tr>
-<tr><td>4</td><td><b>planning</b></td><td><code>hackathon/plan.md</code> · <code>tasks.json</code></td></tr>
+<tr><td>4</td><td><b>planning</b></td><td><code>hackathon/plan.md</code> · <code>hackathon/tasks.json</code></td></tr>
 <tr><td>5</td><td><b>coding</b></td><td><code>hackathon/project/</code></td></tr>
 <tr><td>6</td><td><b>testing</b></td><td><code>hackathon/test_results.json</code></td></tr>
 <tr><td>7</td><td><b>doc</b></td><td><code>hackathon/submission/</code></td></tr>
@@ -128,6 +136,8 @@ Inference powered by **FLock.io** and **Z.AI**
 <tr><td>planning · coding · testing</td><td><code>minimax-m2.5</code></td><td>205k</td></tr>
 </table>
 </div>
+
+Per-phase timeout and fallback behavior are defined in `0xclaw/config/model_profiles.json` (source of truth).
 
 ## 💬 Channels
 
