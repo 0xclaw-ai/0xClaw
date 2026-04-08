@@ -32,6 +32,7 @@ from runtime.bus.events import InboundMessage
 from runtime.bus.queue import MessageBus
 from runtime.config.schema import Config
 from runtime.cron.service import CronService
+from runtime.providers.acp_provider import ACPProvider
 from runtime.providers.litellm_provider import LiteLLMProvider
 from runtime.providers.custom_provider import CustomProvider
 from runtime.session.manager import SessionManager
@@ -55,9 +56,6 @@ from orchestration.state import (
     PipelineStateStore,
 )
 from orchestration.write_guard import build_phase_write_guard, install_phase_write_guards
-from tools.virtuals_tool import VirtualsTool
-from tools.unibase_tool import UnibaseTool
-from observability.anyway import init_anyway_from_env, workflow_span
 
 # ── globals ────────────────────────────────────────────────────────────────────
 console = Console()
@@ -186,6 +184,7 @@ def _print_banner(provider: str, model: str) -> None:
         )
     )
     _PROVIDER_DISPLAY = {
+        "acp": "ACP/Claude Code",
         "flock": "FLock.io", "zhipu": "Z.ai", "openrouter": "OpenRouter",
         "anthropic": "Anthropic", "openai": "OpenAI", "deepseek": "DeepSeek",
         "gemini": "Gemini", "groq": "Groq",
@@ -244,6 +243,14 @@ def _load_config(*, validate_provider_key: bool = True) -> Config:
         model = config.agents.defaults.model
         provider_name = config.get_provider_name(model) or config.agents.defaults.provider
         provider_cfg = config.get_provider(model)
+        if provider_name == "acp":
+            ok, message = ACPProvider.from_config(config, default_model=model).preflight()
+            if not ok:
+                console.print("[red bold]✗ ACP provider is not ready.[/red bold]")
+                console.print(f"  [dim]{message}[/dim]")
+                console.print("  [dim]Install acpx, ensure `claude` is on PATH, and log into Claude Code first.[/dim]")
+                sys.exit(1)
+            return config
         if not provider_cfg or not (provider_cfg.api_key or "").strip():
             key_hints: dict[str, tuple[str, str]] = {
                 "flock": ("FLOCK_API_KEY", "https://platform.flock.io"),
@@ -257,7 +264,7 @@ def _load_config(*, validate_provider_key: bool = True) -> Config:
             env_name, help_url = key_hints.get(provider_name, ("<PROVIDER_API_KEY>", ""))
             console.print(f"[red bold]✗ {env_name} is not set for provider '{provider_name}'.[/red bold]")
             if help_url:
-                console.print(f"  [dim]Get your key at[/dim] [cyan link={help_url}]{help_url}[/cyan]")
+                console.print(f"  [dim]Get your key at[/dim] [cyan link='{help_url}']{help_url}[/cyan]")
             sys.exit(1)
 
     return config
@@ -268,6 +275,8 @@ def _make_provider(config: Config):
     provider_name = config.get_provider_name(model) or config.agents.defaults.provider
     p = config.get_provider(model)
 
+    if provider_name == "acp":
+        return ACPProvider.from_config(config, default_model=model)
     if provider_name == "custom":
         return CustomProvider(
             api_key=p.api_key if p else "no-key",
@@ -764,7 +773,6 @@ async def run_interactive(config: Config) -> None:
     bg_phase: str | None = None      # phase handed off to background monitor
     bg_trace_id: str | None = None
     token_counter = TokenCounter()
-    init_anyway_from_env()
 
     # ── agent setup ────────────────────────────────────────────────────────────
     bus = MessageBus()
@@ -792,9 +800,8 @@ async def run_interactive(config: Config) -> None:
         exec_config=config.tools.exec,
         cron_service=cron,
         session_manager=session_manager,
+        subagents_config=config.subagents,
     )
-    agent.tools.register(VirtualsTool())
-    agent.tools.register(UnibaseTool())
     write_guard = build_phase_write_guard(
         workspace=WORKSPACE,
         state_machine=state_machine,
@@ -895,13 +902,18 @@ async def run_interactive(config: Config) -> None:
     consume_task = asyncio.create_task(_consume())
     monitor_task = asyncio.create_task(_monitor_background())
 
-    async def _send_and_wait(text: str, *, timeout_s: int = DEFAULT_PHASE_TIMEOUT_S) -> SendWaitResult:
+    async def _send_and_wait(
+        text: str,
+        *,
+        timeout_s: int = DEFAULT_PHASE_TIMEOUT_S,
+        phase: str | None = None,
+    ) -> SendWaitResult:
         _processing[0] = True
         turn_done.clear()
         turn_response.clear()
         turn_saw_background_handoff[0] = False
         await bus.publish_inbound(InboundMessage(
-            channel="cli", sender_id="user", chat_id="direct", content=text,
+            channel="cli", sender_id="user", chat_id="direct", content=text, metadata={"phase": phase} if phase else {},
         ))
         try:
             with console.status("[dim]0xClaw is thinking…[/dim]", spinner="dots"):
@@ -926,10 +938,10 @@ async def run_interactive(config: Config) -> None:
         route_source: str | None = None,
     ) -> SendWaitResult:
         if command in {"/new", "/stop"}:
-            return await _send_and_wait(text, timeout_s=timeout_s)
+            return await _send_and_wait(text, timeout_s=timeout_s, phase=phase)
 
         # Only trace turns that actually produced a model response.
-        response = await _send_and_wait(text, timeout_s=timeout_s)
+        response = await _send_and_wait(text, timeout_s=timeout_s, phase=phase)
         if not response.response:
             return response
 
@@ -942,8 +954,6 @@ async def run_interactive(config: Config) -> None:
             "response.received": True,
             "response.length": len(response.response),
         }
-        with workflow_span("0xclaw.cli.turn", attrs):
-            pass
         return response
 
     try:
@@ -1353,10 +1363,8 @@ async def run_gateway(config: Config, *, port: int | None = None, verbose: bool 
         session_manager=session_manager,
         mcp_servers=config.tools.mcp_servers,
         channels_config=config.channels,
+        subagents_config=config.subagents,
     )
-    agent.tools.register(VirtualsTool())
-    agent.tools.register(UnibaseTool())
-
     async def on_cron_job(job) -> str | None:
         """Execute a scheduled job through the main agent loop."""
         reminder_note = (

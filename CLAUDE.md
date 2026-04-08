@@ -34,9 +34,6 @@ cp .env.example .env           # first time only; fill in real API keys
 | `FLOCK_API_KEY` | Primary LLM via FLock.io | HTTP 400 = budget exhausted |
 | `ZAI_API_KEY` | Secondary LLM via Z.ai/Zhipu | `zhipu`/`custom` provider in config |
 | `BRAVE_API_KEY` | Web search | Optional |
-| `ANYWAY_API_KEY` | Observability tracing | Optional; leave blank to disable |
-| `VIRTUALS_API_KEY` | Virtuals Protocol (Bronze sponsor) | Optional; tool registered but not critical |
-| `MEMBASE_ID` / `MEMBASE_ACCOUNT` / `MEMBASE_SECRET_KEY` | Unibase (Bronze sponsor) | Optional |
 
 ---
 
@@ -46,8 +43,6 @@ cp .env.example .env           # first time only; fill in real API keys
 Layer 1 — 0xClaw (the agent we maintain)
   0xclaw/main.py            CLI entry point, interactive REPL, slash commands
   0xclaw/orchestration/     Phase routing, state machine, write guards, model profiles
-  0xclaw/observability/     Anyway OpenTelemetry tracing (optional)
-  0xclaw/tools/             VirtualsTool, UnibaseTool (custom agent tools)
   0xclaw/config/            config.json (providers), model_profiles.json (per-phase settings)
   0xclaw/runtime/           Integrated agent runtime engine (DO NOT modify except providers/registry.py + config/schema.py)
   launcher/                 CLI entry point wrapper (resolves 0x hex-literal import issue)
@@ -73,9 +68,6 @@ Layer 2 — Generated project (per-hackathon, gitignored)
 | `0xclaw/orchestration/model_profiles.py` | `ModelProfileResolver`, `MetricsLogger` |
 | `0xclaw/orchestration/session_control.py` | `SessionControl` — `/resume` logic, `PHASE_TO_COMMAND` map |
 | `0xclaw/orchestration/write_guard.py` | `install_phase_write_guards()` — phase-scoped filesystem write protection |
-| `0xclaw/observability/anyway.py` | `init_anyway_from_env()`, `workflow_span()` — gracefully no-ops if key absent |
-| `0xclaw/tools/virtuals_tool.py` | Virtuals Protocol GAME SDK — on-chain agent identity |
-| `0xclaw/tools/unibase_tool.py` | Unibase membase — persistent on-chain memory |
 | `0xclaw/runtime/providers/registry.py` | Provider spec registry (safe to modify — add new providers here) |
 | `0xclaw/runtime/config/schema.py` | `ProvidersConfig` Pydantic schema (safe to modify — add provider fields here) |
 | `workspace/SOUL.md` | Agent identity and mission (loaded every turn) |
@@ -157,7 +149,6 @@ applies to `exec()` working directory.
 - Configured under both `zhipu` and `custom` keys in `config.json` (identical settings)
 
 ### Anyway (observability — optional)
-- `init_anyway_from_env()` is called at startup. If `ANYWAY_API_KEY` is absent or blank,
   it silently disables itself — no errors, no crash.
 - Use `workflow_span(name, attrs)` context manager to wrap phase runs with traces.
 

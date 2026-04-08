@@ -11,6 +11,15 @@
     }
   },
   "providers": {
+    "acp": {
+      "agent": "claude",
+      "modelId": "qwen3.5-plus",
+      "cwd": "./workspace",
+      "sessionName": "0xclaw",
+      "timeoutSec": 1800,
+      "acpxCommand": "",
+      "approveAll": true
+    },
     "custom": {
       "apiKey": "${ZAI_API_KEY}",
       "apiBase": "https://open.bigmodel.cn/api/paas/v4/"
@@ -25,6 +34,21 @@
       "extraHeaders": {
         "x-litellm-api-key": "${FLOCK_API_KEY}"
       }
+    }
+  },
+  "subagents": {
+    "coding": {
+      "backend": "claude_code",
+      "fallbackBackend": "default_llm"
+    },
+    "claudeCode": {
+      "agent": "claude",
+      "modelId": "qwen3.5-plus",
+      "cwd": "./workspace/hackathon/project",
+      "sessionName": "0xclaw-coder",
+      "timeoutSec": 1800,
+      "acpxCommand": "",
+      "approveAll": true
     }
   },
   "channels": {

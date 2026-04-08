@@ -1,6 +1,6 @@
 ---
 name: hackathon-research
-description: Research hackathon requirements, sponsors, prizes, and judging criteria
+description: Research hackathon requirements, APIs, prizes, and judging criteria
 metadata: {"openclaw": {"always": false}}
 ---
 
@@ -30,10 +30,8 @@ Step 2 — Fetch the hackathon pages using web_fetch:
   web_fetch("https://dorahacks.io/hackathon/1985/detail")
   web_fetch("https://luma.com/54b06cos")
 
-Step 3 — Research key sponsor APIs using web_fetch:
+Step 3 — Research key platform/API docs using web_fetch:
   web_fetch("https://docs.flock.io/flock-products/api-platform/getting-started")
-  web_fetch("https://docs.game.virtuals.io")
-  web_fetch("https://github.com/unibaseio/membase")
 
 Step 4 — Synthesize everything into context.json.
   Use this exact schema:
@@ -50,7 +48,7 @@ Step 4 — Synthesize everything into context.json.
     ],
     "judging_criteria": [
       {"criterion": "Technical Innovation", "weight": "high", "notes": "Novel use of AI/agent tech"},
-      {"criterion": "Sponsor Integration", "weight": "high", "notes": "Depth of sponsor API usage"},
+      {"criterion": "Integration Depth", "weight": "high", "notes": "Depth of platform/API usage"},
       {"criterion": "Demo Impact", "weight": "high", "notes": "Live demo wow factor"},
       {"criterion": "Market Fit", "weight": "medium", "notes": "Real problem, real users"},
       {"criterion": "Code Quality", "weight": "medium", "notes": "Production-ready, not a prototype"}
@@ -62,7 +60,7 @@ Step 4 — Synthesize everything into context.json.
       "README with setup instructions"
     ]
   },
-  "sponsors": [
+  "integrations": [
     {
       "name": "FLock.io",
       "tier": "gold",
@@ -74,47 +72,13 @@ Step 4 — Synthesize everything into context.json.
       "integration_complexity": 2,
       "key_capability": "Decentralized AI model hub, OpenAI-compatible, cost-effective inference",
       "sdk_install": null,
-      "example_use_case": "Primary LLM for all agent reasoning and code generation",
-      "bounty_available": true,
-      "bounty_notes": "Gold sponsor — integrate as primary LLM for maximum score"
-    },
-    {
-      "name": "Virtual Protocol",
-      "tier": "bronze",
-      "api_available": true,
-      "api_base_url": "https://game.virtuals.io",
-      "auth_method": "bearer",
-      "auth_header": "Authorization",
-      "available_models": [],
-      "integration_complexity": 3,
-      "key_capability": "On-chain agent identity and GAME SDK for autonomous agents",
-      "sdk_install": "pip install virtuals-sdk",
-      "example_use_case": "Give the generated project an on-chain agent identity with verifiable provenance",
-      "bounty_available": true,
-      "bounty_notes": "Bronze sponsor — agent identity as differentiator"
-    },
-    {
-      "name": "Unibase",
-      "tier": "bronze",
-      "api_available": true,
-      "api_base_url": "https://unibase.io",
-      "auth_method": "custom_header",
-      "auth_header": "MEMBASE_SECRET_KEY",
-      "available_models": [],
-      "integration_complexity": 3,
-      "key_capability": "Decentralized persistent memory for AI agents with on-chain storage",
-      "sdk_install": "pip install git+https://github.com/unibaseio/membase.git",
-      "example_use_case": "Store agent decisions and conversation history with verifiable on-chain record",
-      "bounty_available": true,
-      "bounty_notes": "Bronze sponsor — persistent memory is a strong agent differentiator"
+      "example_use_case": "Primary LLM for all agent reasoning and code generation"
     }
   ],
-  "strategic_notes": "The meta-story is our strongest differentiator: 0xClaw is an AI agent that autonomously competed in its own hackathon. Focus on depth of FLock integration (Gold sponsor) and compelling live demo. Chain Virtual Protocol + Unibase for on-chain agent provenance.",
-  "recommended_sponsor_priority": ["FLock.io", "Virtual Protocol", "Unibase"],
+  "strategic_notes": "The meta-story is our strongest differentiator: 0xClaw is an AI agent that autonomously competed in its own hackathon. Focus on depth of FLock integration and a compelling live demo.",
+  "recommended_integration_priority": ["FLock.io"],
   "quick_wins": [
-    "FLock as drop-in OpenAI replacement — trivial to integrate",
-    "Unibase MultiMemory for agent memory — 10 lines of code",
-    "Virtual Protocol agent identity — creates compelling on-chain narrative"
+    "FLock as drop-in OpenAI replacement — trivial to integrate"
   ]
 }
 

@@ -8,11 +8,17 @@ from typing import Any, Callable
 
 from loguru import logger
 
+from runtime.agent.subagent_backends import (
+    SubagentBackendDecision,
+    SubagentTaskContext,
+    resolve_subagent_backend,
+)
 from runtime.agent.tools.filesystem import EditFileTool, ListDirTool, ReadFileTool, WriteFileTool
 from runtime.agent.tools.registry import ToolRegistry
 from runtime.agent.tools.shell import ExecTool
 from runtime.agent.tools.web import WebFetchTool, WebSearchTool
-from runtime.bus.events import InboundMessage
+from runtime.bus.events import InboundMessage, OutboundMessage
+from runtime.config.schema import SubagentsConfig
 from runtime.bus.queue import MessageBus
 from runtime.config.schema import ExecToolConfig
 from runtime.providers.base import LLMProvider
@@ -35,6 +41,7 @@ class SubagentManager:
         exec_config: "ExecToolConfig | None" = None,
         restrict_to_workspace: bool = False,
         write_guard: Callable[[str], str | None] | None = None,
+        subagents_config: "SubagentsConfig | None" = None,
     ):
         from runtime.config.schema import ExecToolConfig
         self.provider = provider
@@ -49,6 +56,7 @@ class SubagentManager:
         self.exec_config = exec_config or ExecToolConfig()
         self.restrict_to_workspace = restrict_to_workspace
         self._write_guard = write_guard
+        self._subagents_config = subagents_config or SubagentsConfig()
         self._running_tasks: dict[str, asyncio.Task[None]] = {}
         self._session_tasks: dict[str, set[str]] = {}  # session_key -> {task_id, ...}
 
@@ -80,6 +88,7 @@ class SubagentManager:
         self,
         task: str,
         label: str | None = None,
+        phase: str | None = None,
         origin_channel: str = "cli",
         origin_chat_id: str = "direct",
         session_key: str | None = None,
@@ -88,9 +97,10 @@ class SubagentManager:
         task_id = str(uuid.uuid4())[:8]
         display_label = label or task[:30] + ("..." if len(task) > 30 else "")
         origin = {"channel": origin_channel, "chat_id": origin_chat_id}
+        backend_decision = self._resolve_backend(phase=phase, label=display_label, task=task)
 
         bg_task = asyncio.create_task(
-            self._run_subagent(task_id, task, display_label, origin)
+            self._run_subagent(task_id, task, display_label, origin, phase, backend_decision)
         )
         self._running_tasks[task_id] = bg_task
         if session_key:
@@ -106,7 +116,24 @@ class SubagentManager:
         bg_task.add_done_callback(_cleanup)
 
         logger.info("Spawned subagent [{}]: {}", task_id, display_label)
-        return f"Subagent [{display_label}] started (id: {task_id}). I'll notify you when it completes."
+        backend_note = f"backend={backend_decision.actual_backend}"
+        if backend_decision.fallback_reason:
+            backend_note += f" (fallback: {backend_decision.fallback_reason})"
+        return f"Subagent [{display_label}] started (id: {task_id}, {backend_note}). I'll notify you when it completes."
+
+    def _resolve_backend(
+        self,
+        *,
+        phase: str | None,
+        label: str | None,
+        task: str,
+    ) -> SubagentBackendDecision:
+        return resolve_subagent_backend(
+            context=SubagentTaskContext(phase=phase, label=label, task=task),
+            default_provider=self.provider,
+            default_model=self.model,
+            config=self._subagents_config,
+        )
 
     async def _run_subagent(
         self,
@@ -114,9 +141,24 @@ class SubagentManager:
         task: str,
         label: str,
         origin: dict[str, str],
+        phase: str | None,
+        backend_decision: SubagentBackendDecision,
     ) -> None:
         """Execute the subagent task and announce the result."""
-        logger.info("Subagent [{}] starting task: {}", task_id, label)
+        logger.info(
+            "Subagent [{}] starting task: {} (phase={}, requested_backend={}, actual_backend={})",
+            task_id, label, phase, backend_decision.requested_backend, backend_decision.actual_backend,
+        )
+        if backend_decision.fallback_reason:
+            await self._publish_progress(
+                origin,
+                f"[coder backend] requested={backend_decision.requested_backend} actual={backend_decision.actual_backend} fallback={backend_decision.fallback_reason}",
+            )
+        else:
+            await self._publish_progress(
+                origin,
+                f"[coder backend] requested={backend_decision.requested_backend} actual={backend_decision.actual_backend}",
+            )
 
         try:
             # Build subagent tools (no message tool, no spawn tool)
@@ -141,6 +183,9 @@ class SubagentManager:
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": task},
             ]
+            initial_messages = list(messages)
+            backend_provider = backend_decision.provider
+            current_backend = backend_decision.actual_backend
 
             # Run agent loop (limited iterations)
             max_iterations = 200
@@ -150,7 +195,7 @@ class SubagentManager:
             while iteration < max_iterations:
                 iteration += 1
 
-                response = await self.provider.chat(
+                response = await backend_provider.chat(
                     messages=messages,
                     tools=tools.get_definitions(),
                     model=self.model,
@@ -158,6 +203,26 @@ class SubagentManager:
                     max_tokens=self.max_tokens,
                     reasoning_effort=self.reasoning_effort,
                 )
+
+                if current_backend != "default_llm" and (
+                    response.finish_reason == "error" or not response.has_tool_calls
+                ):
+                    fallback_reason = "unsupported tool-driving behavior / no executable tool calls"
+                    if response.finish_reason == "error":
+                        fallback_reason = response.content or "backend returned an error response"
+                    logger.warning(
+                        "Subagent [{}] backend fallback during execution: {} -> default_llm ({})",
+                        task_id, current_backend, fallback_reason,
+                    )
+                    await self._publish_progress(
+                        origin,
+                        f"[coder backend] fallback during execution: {current_backend} -> default_llm ({fallback_reason})",
+                    )
+                    current_backend = "default_llm"
+                    backend_provider = self.provider
+                    messages = list(initial_messages)
+                    iteration = 0
+                    continue
 
                 if response.has_tool_calls:
                     # Add assistant message with tool calls
@@ -203,6 +268,12 @@ class SubagentManager:
             error_msg = f"Error: {str(e)}"
             logger.error("Subagent [{}] failed: {}", task_id, e)
             await self._announce_result(task_id, label, task, error_msg, origin, "error")
+        finally:
+            if backend_decision.provider is not self.provider and hasattr(backend_decision.provider, "close"):
+                try:
+                    await backend_decision.provider.close()  # type: ignore[attr-defined]
+                except Exception:
+                    logger.debug("Subagent [{}] backend close skipped after error", task_id)
 
     async def _announce_result(
         self,
@@ -235,6 +306,17 @@ Summarize this naturally for the user. Keep it brief (1-2 sentences). Do not men
 
         await self.bus.publish_inbound(msg)
         logger.debug("Subagent [{}] announced result to {}:{}", task_id, origin['channel'], origin['chat_id'])
+
+    async def _publish_progress(self, origin: dict[str, str], content: str) -> None:
+        """Publish a progress update visible to the caller."""
+        await self.bus.publish_outbound(
+            OutboundMessage(
+                channel=origin["channel"],
+                chat_id=origin["chat_id"],
+                content=content,
+                metadata={"_progress": True},
+            )
+        )
     
     def _build_subagent_prompt(self) -> str:
         """Build a focused system prompt for the subagent."""

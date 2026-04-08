@@ -1,13 +1,13 @@
 ---
 name: idea
-description: Generate and score 3 innovative hackathon project ideas aligned with sponsor technologies
+description: Generate and score 3 innovative hackathon project ideas aligned with the hackathon context
 metadata: {"openclaw": {"always": false}}
 ---
 
 # Idea Generation Skill
 
 ## Purpose
-Generate 3 creative, feasible, and sponsor-integrated project ideas for a hackathon.
+Generate 3 creative, feasible project ideas for a hackathon.
 Score each idea on multiple dimensions and recommend the best one.
 
 ## When to Use
@@ -19,7 +19,7 @@ After hackathon research is complete (`hackathon/context.json` exists).
 Execute every step yourself in this conversation, then write the output file.
 Spawning a sub-agent will exhaust the tool budget on unnecessary searches and the file will never be written.
 
-Also: DO NOT call web_search — it is not configured. All sponsor information you need is in context.json.
+Also: DO NOT call web_search — it is not configured. All hackathon context you need is in context.json.
 
 ---
 
@@ -28,10 +28,10 @@ Also: DO NOT call web_search — it is not configured. All sponsor information y
 **Step 1** — Read context:
   `read_file("hackathon/context.json")`
 
-**Step 2** — Analyse the sponsor landscape from context.json:
-  - Identify Gold sponsors (highest priority for integration)
-  - List unique API capabilities of each sponsor
-  - Find complementary sponsor pairs (e.g. FLock inference + Unibase memory)
+**Step 2** — Analyse the technical landscape from context.json:
+  - Identify the strongest APIs/platforms available
+  - List the most useful capabilities for a strong demo
+  - Prefer ideas with clear implementation paths and visible value
 
 **Step 3** — Generate 3 distinct ideas across these archetypes:
   - Idea A — "AI Infrastructure": A platform/protocol other agents can use
@@ -39,7 +39,7 @@ Also: DO NOT call web_search — it is not configured. All sponsor information y
   - Idea C — "Web3 x AI Hybrid": Combines on-chain mechanics with AI intelligence
 
   For each idea:
-  - 2+ sponsor technologies are CORE to the mechanism (not add-ons)
+  - Core technologies are integral to the mechanism (not superficial add-ons)
   - Problem is real and well-defined
   - MVP is achievable in 5 days of coding
   - Demo moment is clear and visual
@@ -72,12 +72,7 @@ Also: DO NOT call web_search — it is not configured. All sponsor information y
         "blockchain": "string or null",
         "storage": "string"
       },
-      "sponsor_integrations": {
-        "flock": "exact role in the system",
-        "virtuals": "exact role or null",
-        "unibase": "exact role or null",
-        "other": "any other confirmed sponsor integrated, or null"
-      },
+      "integrations": ["string"],
       "architecture_sketch": "ASCII text diagram of key components",
       "mvp_scope": "exactly what can be demoed in 7 days",
       "wow_factor": "the one thing that makes judges say 'I've never seen this'",

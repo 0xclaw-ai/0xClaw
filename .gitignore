@@ -11,6 +11,7 @@ workspace/hackathon/ideas.json
 workspace/hackathon/selected_idea.json
 workspace/hackathon/plan.md
 workspace/hackathon/tasks.json
+workspace/hackathon/coding.done.json
 workspace/hackathon/test_results.json
 workspace/hackathon/progress.md
 workspace/hackathon/research_summary.md
@@ -37,7 +38,7 @@ workspace/hackathon/projects/
 
 # Safety: ignore any stray top-level nanobot/ directory
 nanobot/
-
+tests/
 # =============================================================================
 # Python
 # =============================================================================

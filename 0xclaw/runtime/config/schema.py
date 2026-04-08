@@ -226,9 +226,22 @@ class ProviderConfig(Base):
     extra_headers: dict[str, str] | None = None  # Custom headers (e.g. APP-Code for AiHubMix)
 
 
+class ACPProviderConfig(Base):
+    """ACP-backed local agent provider configuration."""
+
+    agent: str = "claude"
+    model_id: str = "qwen3.5-plus"
+    cwd: str = "./workspace"
+    session_name: str = "0xclaw"
+    timeout_sec: int = 1800
+    acpx_command: str = ""
+    approve_all: bool = True
+
+
 class ProvidersConfig(Base):
     """Configuration for LLM providers."""
 
+    acp: ACPProviderConfig = Field(default_factory=ACPProviderConfig)
     custom: ProviderConfig = Field(default_factory=ProviderConfig)  # Any OpenAI-compatible endpoint
     flock: ProviderConfig = Field(default_factory=ProviderConfig)    # FLock.io decentralized AI hub
     anthropic: ProviderConfig = Field(default_factory=ProviderConfig)
@@ -285,6 +298,32 @@ class ExecToolConfig(Base):
     path_append: str = ""
 
 
+class ClaudeCodeSubagentConfig(Base):
+    """Claude Code backend configuration for subagents."""
+
+    agent: str = "claude"
+    model_id: str = "qwen3.5-plus"
+    cwd: str = "./workspace"
+    session_name: str = "0xclaw-coder"
+    timeout_sec: int = 1800
+    acpx_command: str = ""
+    approve_all: bool = True
+
+
+class CodingSubagentConfig(Base):
+    """Coding subagent backend policy."""
+
+    backend: str = "default_llm"
+    fallback_backend: str = "default_llm"
+
+
+class SubagentsConfig(Base):
+    """Subagent backend configuration."""
+
+    coding: CodingSubagentConfig = Field(default_factory=CodingSubagentConfig)
+    claude_code: ClaudeCodeSubagentConfig = Field(default_factory=ClaudeCodeSubagentConfig)
+
+
 class MCPServerConfig(Base):
     """MCP server connection configuration (stdio or HTTP)."""
 
@@ -311,6 +350,7 @@ class Config(BaseSettings):
     agents: AgentsConfig = Field(default_factory=AgentsConfig)
     channels: ChannelsConfig = Field(default_factory=ChannelsConfig)
     providers: ProvidersConfig = Field(default_factory=ProvidersConfig)
+    subagents: SubagentsConfig = Field(default_factory=SubagentsConfig)
     gateway: GatewayConfig = Field(default_factory=GatewayConfig)
     tools: ToolsConfig = Field(default_factory=ToolsConfig)
 
