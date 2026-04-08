@@ -67,6 +67,10 @@ Legacy scripts:
 - `scripts/run_phase.py`: single-phase engineering/debug runner.
 - `scripts/hackathon_runner.py`: deprecated compatibility path; avoid for normal workflow.
 
+Integration docs:
+- Claude Code coding backend: `docs/integrations/claude-code-subagent.md`.
+- Docs index: `docs/README.md`.
+
 
 ## 👾 Demo Video
 
