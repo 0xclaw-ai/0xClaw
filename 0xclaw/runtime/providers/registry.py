@@ -54,9 +54,6 @@ class ProviderSpec:
     # OAuth-based providers (e.g., OpenAI Codex) don't use API keys
     is_oauth: bool = False                   # if True, uses OAuth flow instead of API key
 
-    # Direct providers bypass LiteLLM entirely (e.g., CustomProvider)
-    is_direct: bool = False
-
     # Provider supports cache_control on content blocks (e.g. Anthropic prompt caching)
     supports_prompt_caching: bool = False
 
@@ -87,7 +84,6 @@ PROVIDERS: tuple[ProviderSpec, ...] = (
         default_api_base="",
         strip_model_prefix=False,
         model_overrides=(),
-        is_direct=True,
     ),
 
     # === Custom (direct OpenAI-compatible endpoint, bypasses LiteLLM) ======
@@ -97,7 +93,6 @@ PROVIDERS: tuple[ProviderSpec, ...] = (
         env_key="",
         display_name="Custom",
         litellm_prefix="",
-        is_direct=True,
     ),
 
     # === Gateways (detected by api_key / api_base, not model name) =========
@@ -248,7 +243,7 @@ PROVIDERS: tuple[ProviderSpec, ...] = (
         is_gateway=False,
         is_local=False,
         detect_by_key_prefix="",
-        detect_by_base_keyword="codex",
+        detect_by_base_keyword="",
         default_api_base="https://chatgpt.com/backend-api",
         strip_model_prefix=False,
         model_overrides=(),

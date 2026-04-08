@@ -10,8 +10,7 @@ import subprocess
 import shutil
 import sys
 import time
-from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from dataclasses import dataclass
 from pathlib import Path
 
 from loguru import logger
@@ -131,6 +130,16 @@ SHELL_SUGGESTIONS: list[tuple[str, str]] = [
     ("cat workspace/hackathon/pipeline_state.json","pipeline phase state"),
     ("pwd",                                        "current directory"),
 ]
+
+REDO_COMMANDS: dict[str, str] = {
+    "research": "run research phase",
+    "idea": "generate ideas",
+    "selection": "select the best idea",
+    "planning": "plan the architecture",
+    "coding": "implement the project",
+    "testing": "run tests",
+    "doc": "generate documentation and submission",
+}
 
 
 # ── token tracking ─────────────────────────────────────────────────────────────
@@ -771,7 +780,6 @@ async def run_interactive(config: Config) -> None:
     active_phase: str | None = None
     active_trace_id: str | None = None
     bg_phase: str | None = None      # phase handed off to background monitor
-    bg_trace_id: str | None = None
     token_counter = TokenCounter()
 
     # ── agent setup ────────────────────────────────────────────────────────────
@@ -884,7 +892,7 @@ async def run_interactive(config: Config) -> None:
 
     async def _monitor_background() -> None:
         """Poll for background phase output every 4 s; notify user on completion."""
-        nonlocal bg_phase, bg_trace_id
+        nonlocal bg_phase
         while True:
             await asyncio.sleep(4)
             if not bg_phase:
@@ -893,7 +901,6 @@ async def run_interactive(config: Config) -> None:
                 state_machine.checkpoint(bg_phase, "done")
                 finished = bg_phase
                 bg_phase = None
-                bg_trace_id = None
                 console.print(
                     f"\n[bold green]✓[/bold green]  Phase [#7c3aed]{finished}[/#7c3aed] complete"
                     " — type [bold #fbbf24]/resume[/bold #fbbf24] to continue.\n"
@@ -945,15 +952,6 @@ async def run_interactive(config: Config) -> None:
         if not response.response:
             return response
 
-        attrs = {
-            "request.command": command[:200],
-            "request.is_slash": command.startswith("/"),
-            "request.phase": phase,
-            "request.route_source": route_source,
-            "request.timeout_s": timeout_s,
-            "response.received": True,
-            "response.length": len(response.response),
-        }
         return response
 
     try:
@@ -1033,7 +1031,6 @@ async def run_interactive(config: Config) -> None:
                     active_phase = None
                     active_trace_id = None
                     bg_phase = None
-                    bg_trace_id = None
                     if response.response:
                         console.print(f"[yellow]{response.response.strip()}[/yellow]")
                     else:
@@ -1059,16 +1056,7 @@ async def run_interactive(config: Config) -> None:
                         continue
                     reset = _reset_phase_and_downstream(target_phase, state_store)
                     console.print(f"[dim]Reset:[/dim] {', '.join(reset)}")
-                    _redo_commands = {
-                        "research": "run research phase",
-                        "idea": "generate ideas",
-                        "selection": "select the best idea",
-                        "planning": "plan the architecture",
-                        "coding": "implement the project",
-                        "testing": "run tests",
-                        "doc": "generate documentation and submission",
-                    }
-                    redo_cmd = _redo_commands[target_phase]
+                    redo_cmd = REDO_COMMANDS[target_phase]
                     redo_route = router.route(redo_cmd)
                     if not redo_route.phase:
                         console.print(f"[red]Route failed:[/red] {redo_route.reason}")
@@ -1112,7 +1100,7 @@ async def run_interactive(config: Config) -> None:
                         phase=redo_route.phase,
                         route_source=redo_route.source,
                     )
-                    bg_trace_id, handed_off = _finalize_phase_run(
+                    _, handed_off = _finalize_phase_run(
                         phase=redo_route.phase,
                         trace_id=active_trace_id,
                         result=response,
@@ -1207,7 +1195,7 @@ async def run_interactive(config: Config) -> None:
                         phase=route.phase,
                         route_source=route.source,
                     )
-                    bg_trace_id, handed_off = _finalize_phase_run(
+                    _, handed_off = _finalize_phase_run(
                         phase=route.phase,
                         trace_id=active_trace_id,
                         result=response,
@@ -1291,7 +1279,7 @@ async def run_interactive(config: Config) -> None:
                     phase=route.phase,
                     route_source=route.source,
                 )
-                bg_trace_id, handed_off = _finalize_phase_run(
+                _, handed_off = _finalize_phase_run(
                     phase=route.phase,
                     trace_id=active_trace_id,
                     result=response,

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-0xClaw Hackathon Runner
+0xClaw Hackathon Runner (Deprecated)
 
 Fully automated pipeline that implements every project idea in
 workspace/raw_ideas.md one by one.
@@ -23,6 +23,12 @@ Usage:
   python scripts/hackathon_runner.py --list       # show idea list and exit
   python scripts/hackathon_runner.py --idea 3     # implement only idea #3
   python scripts/hackathon_runner.py --start-from 4  # skip first 3 ideas
+
+NOTE:
+  This script is deprecated and kept only for backwards compatibility.
+  It has a separate orchestration path from the main `0xclaw` CLI and
+  may diverge in state semantics. Prefer `0xclaw` + `/resume` + `/redo`
+  for regular workflow runs.
 """
 
 from __future__ import annotations
@@ -815,6 +821,11 @@ async def run_hackathon(
 
 if __name__ == "__main__":
     import argparse
+
+    print(
+        "[deprecated] scripts/hackathon_runner.py is deprecated. "
+        "Use the `0xclaw` CLI pipeline commands for regular runs."
+    )
 
     parser = argparse.ArgumentParser(
         description="0xClaw Hackathon Runner — implements all collected ideas one by one",

@@ -4,7 +4,6 @@ import argparse
 import asyncio
 import json
 import os
-import re
 import sys
 import textwrap
 import time
@@ -15,10 +14,6 @@ sys.path.insert(0, str(ROOT / "0xclaw"))
 from runtime.agent.loop import AgentLoop
 from runtime.bus.events import InboundMessage
 from runtime.bus.queue import MessageBus
-from runtime.config.schema import Config
-from runtime.providers.acp_provider import ACPProvider
-from runtime.providers.custom_provider import CustomProvider
-from runtime.providers.litellm_provider import LiteLLMProvider
 from runtime.session.manager import SessionManager
 from runtime.utils.helpers import sync_workspace_templates
 from orchestration.contracts import ArtifactMeta, Envelope, wrap_artifact
@@ -27,6 +22,7 @@ from orchestration.router import SkillRouter
 from orchestration.session_control import SessionControl
 from orchestration.state import OrchestratorStateMachine, PipelineStateStore
 from orchestration.write_guard import build_phase_write_guard, install_phase_write_guards
+import main as cli_main
 CONFIG_PATH = ROOT / "0xclaw" / "config" / "config.json"
 MODEL_PROFILES_PATH = ROOT / "0xclaw" / "config" / "model_profiles.json"
 WORKSPACE = ROOT / "workspace"
@@ -161,45 +157,6 @@ def _detect_interactive(command: str):
     return None
 
 
-def _load_config() -> Config:
-    raw = CONFIG_PATH.read_text(encoding="utf-8")
-    def _sub(m: re.Match) -> str:
-        return os.environ.get(m.group(1), "")
-    raw = re.sub(r"\$\{([^}]+)\}", _sub, raw)
-    data = json.loads(raw)
-    data.setdefault("agents", {}).setdefault("defaults", {})["workspace"] = str(WORKSPACE)
-    return Config.model_validate(data)
-
-
-def _make_provider(config: Config):
-    model = config.agents.defaults.model
-    provider_name = config.get_provider_name(model) or config.agents.defaults.provider
-    p = config.get_provider(model)
-    if provider_name == "acp":
-        return ACPProvider.from_config(config, default_model=model)
-    if provider_name == "custom":
-        return CustomProvider(
-            api_key=p.api_key if p else "no-key",
-            api_base=config.get_api_base(model) or "http://localhost:8000/v1",
-            default_model=model,
-        )
-    return LiteLLMProvider(
-        api_key=p.api_key if p else None,
-        api_base=config.get_api_base(model),
-        default_model=model,
-        extra_headers=p.extra_headers if p else None,
-        provider_name=provider_name,
-    )
-
-
-def _output_exists(path: Path | None) -> bool:
-    if path is None:
-        return False
-    if path.is_dir():
-        return any(path.rglob("*"))
-    return path.exists() and path.stat().st_size > 10
-
-
 def _is_intent_only_response(response: str) -> bool:
     text = response.lower()
     intent_markers = ("state intent", "i will now execute", "i will begin")
@@ -215,24 +172,6 @@ def _is_intent_only_response(response: str) -> bool:
         "phase 4 — planning is complete",
     )
     return any(marker in text for marker in intent_markers) and not any(marker in text for marker in action_markers)
-
-
-def _fallback_classifier(text: str) -> str | None:
-    if "plan" in text or "规划" in text:
-        return "planning"
-    if "test" in text or "测试" in text:
-        return "testing"
-    if "doc" in text or "文档" in text:
-        return "doc"
-    if "code" in text or "实现" in text:
-        return "coding"
-    return None
-
-
-def _append_envelope(envelope: Envelope) -> None:
-    ENVELOPE_LOG.parent.mkdir(parents=True, exist_ok=True)
-    with ENVELOPE_LOG.open("a", encoding="utf-8") as f:
-        f.write(json.dumps(envelope.to_dict(), ensure_ascii=False) + "\n")
 
 
 def _response_to_envelope(
@@ -299,11 +238,11 @@ async def run(command: str, timeout_per_turn: int = 240, max_turns: int = MAX_TU
     os.environ.pop("BRAVE_API_KEY", None)
 
     sync_workspace_templates(WORKSPACE)
-    config = _load_config()
+    config = cli_main._load_config(validate_provider_key=False)
     state_store = PipelineStateStore(HACKATHON_DIR)
     state_machine = OrchestratorStateMachine(WORKSPACE, state_store)
     session_control = SessionControl(state_store)
-    router = SkillRouter(fallback_classifier=_fallback_classifier)
+    router = SkillRouter(fallback_classifier=cli_main._fallback_classifier)
     profiles = ModelProfileResolver(MODEL_PROFILES_PATH)
     metrics = MetricsLogger(METRICS_PATH)
     if resume:
@@ -348,7 +287,7 @@ async def run(command: str, timeout_per_turn: int = 240, max_turns: int = MAX_TU
             f.unlink()
 
     bus = MessageBus()
-    provider = _make_provider(config)
+    provider = cli_main._make_provider(config)
     session_manager = SessionManager(WORKSPACE)
     agent = AgentLoop(
         bus=bus,
@@ -377,7 +316,7 @@ async def run(command: str, timeout_per_turn: int = 240, max_turns: int = MAX_TU
         trace_id=trace_id,
         payload={"user_command": command, "phase": phase},
     )
-    _append_envelope(envelope)
+    cli_main._append_envelope(envelope)
     llm_message = (
         "You are executing a single pipeline phase. "
         "Consume the envelope below and complete only that phase.\n\n"
@@ -454,7 +393,7 @@ async def run(command: str, timeout_per_turn: int = 240, max_turns: int = MAX_TU
             llm_turns += 1
             auto_nudge_pending = False
             print(f"\n{'─'*60}\n[agent turn {turn}]\n{response}\n{'─'*60}\n")
-            output_ready = _output_exists(output_file)
+            output_ready = cli_main._output_exists(output_file)
             resp_envelope = _response_to_envelope(
                 response,
                 trace_id=trace_id,
@@ -463,9 +402,9 @@ async def run(command: str, timeout_per_turn: int = 240, max_turns: int = MAX_TU
                 agent_id="orchestrator",
                 output_ready=output_ready,
             )
-            _append_envelope(resp_envelope)
+            cli_main._append_envelope(resp_envelope)
             await asyncio.sleep(1)
-            if output_ready or _output_exists(output_file):
+            if output_ready or cli_main._output_exists(output_file):
                 print(f"[✓] Output file created: {output_file}")
                 success = True
                 break
@@ -496,7 +435,7 @@ async def run(command: str, timeout_per_turn: int = 240, max_turns: int = MAX_TU
 
     # Final check: the output file may have been written by a subagent after
     # the last LLM turn but before the loop exhausted — check one more time.
-    if not success and _output_exists(output_file):
+    if not success and cli_main._output_exists(output_file):
         print(f"[✓] Output detected after loop: {output_file}")
         success = True
 

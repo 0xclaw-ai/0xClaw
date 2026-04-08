@@ -23,9 +23,12 @@ The generated project (Layer 2) is created fresh per hackathon and lives at
 conda activate 0xclaw          # Python 3.11, all deps installed
 cp .env.example .env           # first time only; fill in real API keys
 ./scripts/verify_setup.sh      # confirms runtime import + workspace + API keys
-./scripts/start.sh             # launch the agent
-./scripts/start.sh --logs      # launch with loguru output visible
+0xclaw                         # canonical runtime entrypoint
+0xclaw --logs                  # launch with loguru output visible
 ```
+
+`./scripts/start.sh` is an optional wrapper that activates conda and loads `.env` before running `0xclaw`.
+`./scripts/verify_setup.sh` is a preflight checker, not the runtime entrypoint.
 
 ### Required `.env` keys
 
@@ -139,8 +142,7 @@ applies to `exec()` working directory.
 - Endpoint: `https://api.flock.io/v1`
 - Auth: custom header `x-litellm-api-key: $FLOCK_API_KEY` (not standard Bearer)
 - Default model: `minimax-m2.5` (`config.json`)
-- Early phases (research/idea/selection/doc): `minimax-m2.1`, 180–240 s timeout
-- Heavy phases (planning/coding/testing): `minimax-m2.5`, 240–300 s timeout, up to 16k tokens
+- Per-phase timeout/model overrides: source of truth is `0xclaw/config/model_profiles.json`
 - Routed through LiteLLM as `openai/<model>` with `api_base` override
 
 ### Z.ai / Zhipu (secondary — `provider: "zhipu"` or `"custom"`)
@@ -165,10 +167,13 @@ provider when no model-level override is active.
 |---------|--------|
 | `/status` | Show pipeline phase progress (which phases are done/running/failed) |
 | `/resume` | Resume from last pipeline checkpoint (reads `pipeline_state.json`) |
+| `/redo <phase>` | Reset one phase (and downstream phases) and run it again |
 | `/new` | Reset session — clears all hackathon runtime outputs |
 | `/stop` | Cancel the currently running sub-agent task |
 | `/exit` | Exit the CLI |
 | `/help` | Show this list |
+| `?` | Alias for `/help` |
+| `!<cmd>` | Run shell command passthrough in CLI |
 
 Phase commands are free-form natural language routed by `SkillRouter`. Each phase invocation
 wraps the input in an `Envelope` and sends it to the `AgentLoop` with a per-phase timeout from
