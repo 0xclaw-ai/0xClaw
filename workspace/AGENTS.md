@@ -92,12 +92,17 @@ Trigger cues:
 - "implement tasks"
 - "开始实现"
 
-Read tasks.json. For each epic with priority "critical" or "high":
-- Use the `coder` skill to spawn one coder agent per epic (base skill)
-- Agents write to `hackathon/project/{component}/`
-- Run epics in parallel where no dependencies exist
-- Apply `tdd-workflow` inside each coder execution.
+Default execution mode:
+- Use a single coding executor for the whole phase.
+- The coding executor owns the full implementation flow for Phase 5 and writes directly to `hackathon/project/{component}/`.
+- Apply `tdd-workflow` inside the coding execution.
 - Apply `coding-standards` before marking each task done.
+- Prefer completing the implementation in one continuous coding run instead of decomposing into multiple spawned coders.
+
+Legacy fallback mode:
+- Only if the active coding backend cannot execute the phase directly, fall back to the older orchestrated mode.
+- In legacy fallback mode only, use the `coder` skill to spawn one coder agent per epic with priority `critical` or `high`.
+- In legacy fallback mode only, run epics in parallel where no dependencies exist.
 
 Completion rule for Phase 5:
 - Do not treat partial files in `hackathon/project/` as coding completion.
@@ -106,6 +111,11 @@ Completion rule for Phase 5:
 - If a spawned coder is still running, explicitly say coding is still in progress and do not imply completion.
 - When unsure whether coding is complete, prefer reporting "still in progress" over "complete".
 - Only report a final coding completion summary after implementation scope has actually been finished.
+
+Execution guardrails for Phase 5:
+- Do not spawn coder sub-agents when the active coding backend is a direct executor such as Claude Code.
+- Do not mix "direct executor mode" and "spawned coder mode" in the same Phase 5 run unless a backend failure forces an explicit fallback.
+- If direct executor mode fails and fallback mode is activated, state that clearly in the progress update before spawning any coders.
 
 ### Phase 6 — Testing
 Trigger cues:

@@ -16,6 +16,7 @@ from runtime.agent.loop import AgentLoop
 from runtime.bus.events import InboundMessage
 from runtime.bus.queue import MessageBus
 from runtime.config.schema import Config
+from runtime.providers.acp_provider import ACPProvider
 from runtime.providers.custom_provider import CustomProvider
 from runtime.providers.litellm_provider import LiteLLMProvider
 from runtime.session.manager import SessionManager
@@ -26,9 +27,6 @@ from orchestration.router import SkillRouter
 from orchestration.session_control import SessionControl
 from orchestration.state import OrchestratorStateMachine, PipelineStateStore
 from orchestration.write_guard import build_phase_write_guard, install_phase_write_guards
-from tools.unibase_tool import UnibaseTool
-from tools.virtuals_tool import VirtualsTool
-from observability.anyway import init_anyway_from_env, task_span, workflow_span
 CONFIG_PATH = ROOT / "0xclaw" / "config" / "config.json"
 MODEL_PROFILES_PATH = ROOT / "0xclaw" / "config" / "model_profiles.json"
 WORKSPACE = ROOT / "workspace"
@@ -133,8 +131,6 @@ def _select_idea_interactive() -> bool:
                 "tech_stack": {"summary": stack},
                 "sponsor_integrations": {
                     "flock": "primary LLM inference",
-                    "virtuals": "on-chain agent identity",
-                    "unibase": "persistent memory",
                 },
                 "source": "human_provided",
                 "selected_at": datetime.now(timezone.utc).isoformat(),
@@ -179,6 +175,8 @@ def _make_provider(config: Config):
     model = config.agents.defaults.model
     provider_name = config.get_provider_name(model) or config.agents.defaults.provider
     p = config.get_provider(model)
+    if provider_name == "acp":
+        return ACPProvider.from_config(config, default_model=model)
     if provider_name == "custom":
         return CustomProvider(
             api_key=p.api_key if p else "no-key",
@@ -293,7 +291,6 @@ def _write_artifact_bundle(phase: str, output_path: Path) -> None:
 async def run(command: str, timeout_per_turn: int = 240, max_turns: int = MAX_TURNS, resume: bool = False) -> int:
     from dotenv import load_dotenv
     load_dotenv(ROOT / ".env")
-    init_anyway_from_env(app_name_override="0xclaw-run-phase")
 
     # web_search requires BRAVE_API_KEY; we don't have one, so clear it so
     # WebSearchTool.api_key returns "" (checked at call time) and the tool
@@ -364,9 +361,8 @@ async def run(command: str, timeout_per_turn: int = 240, max_turns: int = MAX_TU
         memory_window=config.agents.defaults.memory_window,
         exec_config=config.tools.exec,
         session_manager=session_manager,
+        subagents_config=config.subagents,
     )
-    agent.tools.register(VirtualsTool())
-    agent.tools.register(UnibaseTool())
     write_guard = build_phase_write_guard(
         workspace=WORKSPACE,
         state_machine=state_machine,
@@ -391,6 +387,12 @@ async def run(command: str, timeout_per_turn: int = 240, max_turns: int = MAX_TU
     print(f"Command  : {command}")
     print(f"Phase    : {phase} ({route.source}, confidence={route.confidence:.2f})")
     print(f"Provider : {config.agents.defaults.provider} | {config.agents.defaults.model}")
+    if phase == "coding":
+        print(
+            "Backend  : "
+            f"{config.subagents.coding.backend} "
+            f"(fallback: {config.subagents.coding.fallback_backend})"
+        )
     print(f"Watching : {output_file or 'n/a'}")
     print(f"Trace ID : {trace_id}")
     print(f"{'='*70}\n")
@@ -409,7 +411,7 @@ async def run(command: str, timeout_per_turn: int = 240, max_turns: int = MAX_TU
                 msg = await asyncio.wait_for(bus.consume_outbound(), timeout=min(1.0, remaining))
                 deadline = time.monotonic() + timeout
                 if msg.metadata.get("_progress"):
-                    print(f"  ... {msg.content}")
+                    print(msg.content)
                 elif msg.content:
                     return msg.content
             except asyncio.TimeoutError:
@@ -418,7 +420,15 @@ async def run(command: str, timeout_per_turn: int = 240, max_turns: int = MAX_TU
                 return None
 
     async def send(text: str) -> None:
-        await bus.publish_inbound(InboundMessage(channel="cli", sender_id="user", chat_id="direct", content=text))
+        await bus.publish_inbound(
+            InboundMessage(
+                channel="cli",
+                sender_id="user",
+                chat_id="direct",
+                content=text,
+                metadata={"phase": phase},
+            )
+        )
 
     success = False
     nudge_count = 0
@@ -445,17 +455,6 @@ async def run(command: str, timeout_per_turn: int = 240, max_turns: int = MAX_TU
             auto_nudge_pending = False
             print(f"\n{'─'*60}\n[agent turn {turn}]\n{response}\n{'─'*60}\n")
             output_ready = _output_exists(output_file)
-            with task_span(
-                "0xclaw.run_phase.turn",
-                {
-                    "phase": phase,
-                    "turn_index": turn,
-                    "trace_id": trace_id,
-                    "response_received": True,
-                    "output_ready": output_ready,
-                },
-            ):
-                pass
             resp_envelope = _response_to_envelope(
                 response,
                 trace_id=trace_id,
@@ -502,21 +501,6 @@ async def run(command: str, timeout_per_turn: int = 240, max_turns: int = MAX_TU
         success = True
 
     phase_status = "done" if success else "failed"
-    if llm_turns > 0:
-        with workflow_span(
-            "0xclaw.run_phase",
-            {
-                "phase": phase,
-                "trace_id": trace_id,
-                "model": config.agents.defaults.model,
-                "provider": config.agents.defaults.provider,
-                "timeout_per_turn": timeout_per_turn,
-                "max_turns": max_turns,
-                "status": phase_status,
-                "llm_turns": llm_turns,
-            },
-        ):
-            pass
     elapsed = round(time.time() - started_at, 2)
     if success:
         state_machine.checkpoint(phase, "done")

@@ -220,18 +220,6 @@ def setup_project_workspace(idea: dict) -> None:
                 "bounty_available": True,
                 "bounty_notes": "Gold sponsor — integrate as primary LLM for maximum score",
             },
-            {
-                "name": "Virtual Protocol", "tier": "bronze",
-                "sdk_install": "pip install virtuals-sdk",
-                "key_capability": "On-chain agent identity via GAME SDK",
-                "bounty_available": True,
-            },
-            {
-                "name": "Unibase", "tier": "bronze",
-                "sdk_install": "pip install git+https://github.com/unibaseio/membase.git",
-                "key_capability": "Persistent on-chain memory for AI agents",
-                "bounty_available": True,
-            },
         ],
         "seed_concept": {
             "title":        idea["title"],
@@ -396,8 +384,6 @@ def show_and_select_idea(ideas_file: Path) -> bool:
                 "tech_stack": {"summary": stack},
                 "sponsor_integrations": {
                     "flock": "primary LLM inference",
-                    "virtuals": "on-chain agent identity",
-                    "unibase": "persistent memory",
                 },
                 "source": "human_provided",
             }
@@ -691,8 +677,6 @@ async def run_hackathon(
                 },
                 "sponsor_integrations": {
                     "flock": "primary LLM inference engine",
-                    "virtuals": "on-chain agent identity",
-                    "unibase": "persistent cross-session memory",
                 },
                 "selected_by": "fallback",
                 "selected_at": datetime.now(timezone.utc).isoformat(),
