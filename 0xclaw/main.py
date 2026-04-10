@@ -263,7 +263,7 @@ def _load_config(*, validate_provider_key: bool = True) -> Config:
         if not provider_cfg or not (provider_cfg.api_key or "").strip():
             key_hints: dict[str, tuple[str, str]] = {
                 "flock": ("FLOCK_API_KEY", "https://platform.flock.io"),
-                "zhipu": ("ZAI_API_KEY", "https://open.bigmodel.cn"),
+                "zhipu": ("ZAI_API_KEY", "https://z.ai/model-api"),
                 "openrouter": ("OPENROUTER_API_KEY", "https://openrouter.ai/keys"),
                 "deepseek": ("DEEPSEEK_API_KEY", "https://platform.deepseek.com"),
                 "openai": ("OPENAI_API_KEY", "https://platform.openai.com/api-keys"),

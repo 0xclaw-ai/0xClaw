@@ -34,8 +34,8 @@ cp .env.example .env           # first time only; fill in real API keys
 
 | Key | Purpose | Notes |
 |-----|---------|-------|
-| `FLOCK_API_KEY` | Primary LLM via FLock.io | HTTP 400 = budget exhausted |
-| `ZAI_API_KEY` | Secondary LLM via Z.ai/Zhipu | `zhipu`/`custom` provider in config |
+| `ZAI_API_KEY` | Primary LLM via Z.ai (international) | `zhipu` provider in config; model `glm-4.7` |
+| `FLOCK_API_KEY` | Secondary LLM via FLock.io | HTTP 400 = budget exhausted |
 | `BRAVE_API_KEY` | Web search | Optional |
 
 ---
@@ -138,17 +138,18 @@ applies to `exec()` working directory.
 
 ## Provider / model details
 
-### FLock.io (primary LLM — `provider: "flock"`)
+### Z.ai (primary LLM — `provider: "zhipu"`)
+- Endpoint: `https://api.z.ai/api/paas/v4` (international; NOT bigmodel.cn)
+- Auth: `ZAI_API_KEY` via standard Bearer token
+- Default model: `glm-4.7` (`config.json`); all 7 phases use `glm-4.7` (`model_profiles.json`)
+- OpenAI-compatible API; LiteLLM routes as `zai/<model>` automatically
+- Configured under both `zhipu` and `custom` keys in `config.json` (identical settings)
+
+### FLock.io (secondary LLM — `provider: "flock"`)
 - Endpoint: `https://api.flock.io/v1`
 - Auth: custom header `x-litellm-api-key: $FLOCK_API_KEY` (not standard Bearer)
-- Default model: `minimax-m2.5` (`config.json`)
-- Per-phase timeout/model overrides: source of truth is `0xclaw/config/model_profiles.json`
 - Routed through LiteLLM as `openai/<model>` with `api_base` override
-
-### Z.ai / Zhipu (secondary — `provider: "zhipu"` or `"custom"`)
-- Endpoint: `https://open.bigmodel.cn/api/paas/v4/`
-- Auth: `ZAI_API_KEY` via standard Bearer
-- Configured under both `zhipu` and `custom` keys in `config.json` (identical settings)
+- HTTP 400 = budget exhausted
 
 ### Anyway (observability — optional)
   it silently disables itself — no errors, no crash.

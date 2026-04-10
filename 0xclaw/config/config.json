@@ -2,8 +2,8 @@
   "agents": {
     "defaults": {
       "workspace": "./workspace",
-      "model": "minimax-m2.5",
-      "provider": "flock",
+      "model": "glm-4.7",
+      "provider": "zhipu",
       "maxTokens": 8192,
       "temperature": 0.1,
       "maxToolIterations": 200,
@@ -22,11 +22,11 @@
     },
     "custom": {
       "apiKey": "${ZAI_API_KEY}",
-      "apiBase": "https://open.bigmodel.cn/api/paas/v4/"
+      "apiBase": "https://api.z.ai/api/paas/v4"
     },
     "zhipu": {
       "apiKey": "${ZAI_API_KEY}",
-      "apiBase": "https://open.bigmodel.cn/api/paas/v4/"
+      "apiBase": "https://api.z.ai/api/paas/v4"
     },
     "flock": {
       "apiKey": "${FLOCK_API_KEY}",

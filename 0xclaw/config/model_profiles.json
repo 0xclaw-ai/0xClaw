@@ -2,8 +2,8 @@
   "profiles": [
     {
       "phase": "research",
-      "provider": "flock",
-      "model": "minimax-m2.1",
+      "provider": "zhipu",
+      "model": "glm-4.7",
       "max_tokens": 16384,
       "temperature": 0.2,
       "timeout_s": 300,
@@ -11,8 +11,8 @@
     },
     {
       "phase": "idea",
-      "provider": "flock",
-      "model": "minimax-m2.1",
+      "provider": "zhipu",
+      "model": "glm-4.7",
       "max_tokens": 8192,
       "temperature": 0.4,
       "timeout_s": 240,
@@ -20,8 +20,8 @@
     },
     {
       "phase": "selection",
-      "provider": "flock",
-      "model": "minimax-m2.1",
+      "provider": "zhipu",
+      "model": "glm-4.7",
       "max_tokens": 4096,
       "temperature": 0.1,
       "timeout_s": 180,
@@ -29,8 +29,8 @@
     },
     {
       "phase": "planning",
-      "provider": "flock",
-      "model": "minimax-m2.5",
+      "provider": "zhipu",
+      "model": "glm-4.7",
       "max_tokens": 32768,
       "temperature": 0.2,
       "timeout_s": 420,
@@ -38,8 +38,8 @@
     },
     {
       "phase": "coding",
-      "provider": "flock",
-      "model": "minimax-m2.5",
+      "provider": "zhipu",
+      "model": "glm-4.7",
       "max_tokens": 65536,
       "temperature": 0.1,
       "timeout_s": 600,
@@ -47,8 +47,8 @@
     },
     {
       "phase": "testing",
-      "provider": "flock",
-      "model": "minimax-m2.5",
+      "provider": "zhipu",
+      "model": "glm-4.7",
       "max_tokens": 16384,
       "temperature": 0.1,
       "timeout_s": 360,
@@ -56,8 +56,8 @@
     },
     {
       "phase": "doc",
-      "provider": "flock",
-      "model": "minimax-m2.1",
+      "provider": "zhipu",
+      "model": "glm-4.7",
       "max_tokens": 16384,
       "temperature": 0.3,
       "timeout_s": 360,
