@@ -65,16 +65,16 @@ check_key() {
 check_key "FLOCK_API_KEY"   "${FLOCK_API_KEY:-}"
 check_key "ZAI_API_KEY"     "${ZAI_API_KEY:-}"
 
-# Test Zhipu connectivity
+# Test Z.ai connectivity
 echo ""
 echo "API Connectivity:"
 if [[ -n "${ZAI_API_KEY:-}" ]]; then
-  echo -n "  Zhipu GLM-5... "
+  echo -n "  Z.ai GLM-4.7... "
   RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" \
-    -X POST "https://open.bigmodel.cn/api/paas/v4/chat/completions" \
+    -X POST "https://api.z.ai/api/paas/v4/chat/completions" \
     -H "Content-Type: application/json" \
     -H "Authorization: Bearer $ZAI_API_KEY" \
-    -d '{"model":"glm-5","messages":[{"role":"user","content":"hi"}],"max_tokens":5}' \
+    -d '{"model":"glm-4.7","messages":[{"role":"user","content":"hi"}],"max_tokens":5}' \
     --max-time 10 2>/dev/null || echo "000")
   if [[ "$RESPONSE" == "200" ]]; then
     echo "✓ reachable (200)"
