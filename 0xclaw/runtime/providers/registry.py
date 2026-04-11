@@ -305,25 +305,25 @@ PROVIDERS: tuple[ProviderSpec, ...] = (
         model_overrides=(),
     ),
 
-    # Z.ai (international): LiteLLM uses "zai/" prefix.
-    # Also mirrors key to ZHIPUAI_API_KEY (some LiteLLM paths check that).
-    # skip_prefixes: don't add "zai/" when already routed via gateway.
+    # Z.ai (international): OpenAI-compatible API, routed as openai/<model> with custom api_base.
+    # is_gateway=True so find_gateway() picks it up when provider="zhipu" is set explicitly.
+    # Auth: standard Bearer token via api_key kwarg (not a custom header like FLock).
     ProviderSpec(
         name="zhipu",
         keywords=("zhipu", "glm", "zai"),
         env_key="ZAI_API_KEY",
         display_name="Z.ai",
-        litellm_prefix="zai",              # glm-4 → zai/glm-4
-        skip_prefixes=("zhipu/", "zai/", "openrouter/", "hosted_vllm/"),
+        litellm_prefix="openai",           # glm-4.7 → openai/glm-4.7 + api_base override
+        skip_prefixes=("openai/", "zhipu/", "zai/", "openrouter/", "hosted_vllm/"),
         env_extras=(
             ("ZHIPUAI_API_KEY", "{api_key}"),
         ),
-        is_gateway=False,
+        is_gateway=True,
         is_local=False,
         detect_by_key_prefix="",
         detect_by_base_keyword="z.ai",
         default_api_base="https://api.z.ai/api/paas/v4",
-        strip_model_prefix=False,
+        strip_model_prefix=True,
         model_overrides=(),
     ),
 
