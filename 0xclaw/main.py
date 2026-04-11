@@ -95,6 +95,8 @@ HACKATHON_RUNTIME_PATHS = (
 WORKSPACE_RUNTIME_PATHS = (
     "research",
     "hackathon-research.md",
+    "memory/MEMORY.md",    # agent long-term memory — stale hackathon context bleeds through after /new
+    "memory/HISTORY.md",  # conversation history log
 )
 
 # ── ASCII art (each line measured to 53 display columns) ──────────────────────

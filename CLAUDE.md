@@ -34,7 +34,7 @@ cp .env.example .env           # first time only; fill in real API keys
 
 | Key | Purpose | Notes |
 |-----|---------|-------|
-| `ZAI_API_KEY` | Primary LLM via Z.ai (international) | `zhipu` provider in config; model `glm-4.7` |
+| `ZAI_API_KEY` | Primary LLM via Z.ai (international) | `zhipu` provider in config; model `glm-4.5` |
 | `FLOCK_API_KEY` | Secondary LLM via FLock.io | HTTP 400 = budget exhausted |
 | `BRAVE_API_KEY` | Web search | Optional |
 
@@ -141,7 +141,7 @@ applies to `exec()` working directory.
 ### Z.ai (primary LLM — `provider: "zhipu"`)
 - Endpoint: `https://api.z.ai/api/paas/v4` (international; NOT bigmodel.cn)
 - Auth: `ZAI_API_KEY` via standard Bearer token
-- Default model: `glm-4.7` (`config.json`); all 7 phases use `glm-4.7` (`model_profiles.json`)
+- Default model: `glm-4.5` (`config.json`); all 7 phases use `glm-4.5` (`model_profiles.json`)
 - OpenAI-compatible API; LiteLLM routes as `zai/<model>` automatically
 - Configured under both `zhipu` and `custom` keys in `config.json` (identical settings)
 
