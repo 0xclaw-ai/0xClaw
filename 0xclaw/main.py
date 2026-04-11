@@ -847,6 +847,9 @@ async def run_interactive(config: Config) -> None:
 
     def _on_sigint(sig, frame):
         if _processing[0]:
+            # If a phase is running in background, mark it so monitoring continues
+            if active_phase:
+                turn_saw_background_handoff[0] = True
             # A task is in flight — unblock _send_and_wait and let user continue
             _loop.call_soon_threadsafe(turn_done.set)
             console.print(
@@ -1021,6 +1024,9 @@ async def run_interactive(config: Config) -> None:
 
                 if lower == "/stop":
                     target_phase = active_phase or bg_phase
+                    if not target_phase:
+                        console.print("[yellow]No active task to stop.[/yellow]")
+                        continue
                     response = await _send_and_wait_traced(
                         "/stop",
                         timeout_s=30,
