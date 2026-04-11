@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from .state import COMPLETED_PHASE_STATUSES, PHASES, PipelineStateStore
+from .state import COMPLETED_PHASE_STATUSES, PHASE_PRIMARY_OUTPUTS, PHASES, PipelineStateStore
+from .phase_completion import output_exists
 
 
 PHASE_TO_COMMAND = {
@@ -51,6 +52,23 @@ class SessionControl:
             for p in PHASES[idx + 1:]:
                 if status_map.get(p) not in COMPLETED_PHASE_STATUSES:
                     return ResumeDecision(p, PHASE_TO_COMMAND[p], f"Resume from next phase after {checkpoint}")
+
+        # Auto-heal: if state file is missing or stale, check actual output files
+        healed = False
+        for phase, primary_output in PHASE_PRIMARY_OUTPUTS.items():
+            if status_map.get(phase) not in COMPLETED_PHASE_STATUSES:
+                out_path = self.store.hackathon_dir / primary_output
+                if output_exists(out_path):
+                    self.store.set_phase_status(phase, "done")
+                    status_map[phase] = "done"
+                    healed = True
+
+        if healed:
+            # Re-evaluate after healing — skip to first genuinely incomplete phase
+            for p in PHASES:
+                if status_map.get(p) not in COMPLETED_PHASE_STATUSES:
+                    return ResumeDecision(p, PHASE_TO_COMMAND[p], "Resume from first incomplete phase")
+            return ResumeDecision(None, None, "All phases are complete")
 
         for p in PHASES:
             if status_map.get(p) not in COMPLETED_PHASE_STATUSES:
