@@ -29,13 +29,16 @@ class ModelProfileResolverTests(unittest.TestCase):
         self.assertIsNone(resolver.resolve("bogus"))
 
     def test_resolve_returns_correct_coding_profile(self) -> None:
+        raw = json.loads(REAL_CONFIG_PATH.read_text(encoding="utf-8"))
+        expected = next(p for p in raw["profiles"] if p["phase"] == "coding")
+
         resolver = ModelProfileResolver(REAL_CONFIG_PATH)
         profile = resolver.resolve("coding")
-        self.assertEqual(profile.provider, "zhipu")
-        self.assertEqual(profile.model, "glm-4.5")
-        self.assertEqual(profile.max_tokens, 65536)
-        self.assertAlmostEqual(profile.temperature, 0.1)
-        self.assertEqual(profile.timeout_s, 600)
+        self.assertEqual(profile.provider, expected["provider"])
+        self.assertEqual(profile.model, expected["model"])
+        self.assertEqual(profile.max_tokens, expected["max_tokens"])
+        self.assertAlmostEqual(profile.temperature, expected["temperature"])
+        self.assertEqual(profile.timeout_s, expected["timeout_s"])
 
     def test_fallback_when_failed_true(self) -> None:
         resolver = ModelProfileResolver(REAL_CONFIG_PATH)
