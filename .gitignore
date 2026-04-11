@@ -38,7 +38,6 @@ workspace/hackathon/projects/
 
 # Safety: ignore any stray top-level nanobot/ directory
 nanobot/
-tests/
 # =============================================================================
 # Python
 # =============================================================================
