@@ -38,7 +38,7 @@ cp .env.example .env
 ./scripts/verify_setup.sh
 ```
 
-Then fill in `FLOCK_API_KEY` in `.env`.
+Then fill in `ZAI_API_KEY` or `FLOCK_API_KEY` in `.env`.
 
 For a quick sanity check after installation:
 
