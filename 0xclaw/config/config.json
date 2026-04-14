@@ -13,7 +13,7 @@
   "providers": {
     "acp": {
       "agent": "claude",
-      "modelId": "qwen3.5-plus",
+      "modelId": "glm-5.1",
       "cwd": "./workspace",
       "sessionName": "0xclaw",
       "timeoutSec": 1800,
@@ -43,7 +43,7 @@
     },
     "claudeCode": {
       "agent": "claude",
-      "modelId": "qwen3.5-plus",
+      "modelId": "glm-5.1",
       "cwd": "./workspace/hackathon/project",
       "sessionName": "0xclaw-coder",
       "timeoutSec": 1800,
