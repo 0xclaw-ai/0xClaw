@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
+from .phase_completion import is_phase_complete as phase_output_is_complete
 from .phase_completion import output_exists
 
 PHASES = ("research", "idea", "selection", "planning", "coding", "testing", "doc")
@@ -41,6 +42,16 @@ PHASE_PRIMARY_OUTPUTS: dict[str, str] = {
     "doc": "submission/README.md",
 }
 
+PHASE_COMPLETION_ARTIFACTS: dict[str, tuple[str, ...]] = {
+    "research": ("context.json",),
+    "idea": ("ideas.json",),
+    "selection": ("selected_idea.json",),
+    "planning": ("plan.md", "tasks.json"),
+    "coding": ("project",),
+    "testing": ("test_results.json",),
+    "doc": ("submission/README.md",),
+}
+
 PHASE_ALLOWED_WRITE_DIRS: dict[str, tuple[str, ...]] = {
     "research": ("hackathon/context.json", "hackathon/pipeline_state.json", "hackathon/progress.md"),
     "idea": ("hackathon/ideas.json", "hackathon/pipeline_state.json", "hackathon/progress.md"),
@@ -50,6 +61,10 @@ PHASE_ALLOWED_WRITE_DIRS: dict[str, tuple[str, ...]] = {
     "testing": ("hackathon/test_results.json", "hackathon/pipeline_state.json", "hackathon/progress.md"),
     "doc": ("hackathon/submission", "hackathon/pipeline_state.json", "hackathon/progress.md"),
 }
+
+PROTECTED_PIPELINE_PATHS = tuple(
+    dict.fromkeys(path for paths in PHASE_ALLOWED_WRITE_DIRS.values() for path in paths)
+)
 
 COMPLETED_PHASE_STATUSES = frozenset({"done", "complete"})
 
@@ -69,6 +84,30 @@ def _default_state() -> dict:
     }
 
 
+def _normalize_state(data: dict | None) -> dict:
+    """Hydrate a possibly stale or partial state file into the current schema."""
+    base = _default_state()
+    if not isinstance(data, dict):
+        return base
+
+    state = dict(base)
+    state.update({k: v for k, v in data.items() if k != "phases"})
+
+    existing_rows = {}
+    for row in data.get("phases", []) if isinstance(data.get("phases"), list) else []:
+        if isinstance(row, dict) and row.get("name") in PHASES:
+            existing_rows[row["name"]] = row
+
+    normalized_rows = []
+    for default_row in base["phases"]:
+        row = dict(default_row)
+        row.update(existing_rows.get(default_row["name"], {}))
+        normalized_rows.append(row)
+
+    state["phases"] = normalized_rows
+    return state
+
+
 class PipelineStateStore:
     """File-backed pipeline state store."""
 
@@ -81,7 +120,7 @@ class PipelineStateStore:
         if not self.path.exists():
             return _default_state()
         data = json.loads(self.path.read_text(encoding="utf-8"))
-        return data
+        return _normalize_state(data)
 
     def save(self, state: dict) -> None:
         state["updated_at"] = _utc_now()
@@ -107,6 +146,76 @@ class PipelineStateStore:
         return state
 
 
+def phase_completion_paths(hackathon_dir: Path, phase: str) -> tuple[Path, ...]:
+    """Return the artifact paths that define phase completion."""
+    return tuple(hackathon_dir / rel for rel in PHASE_COMPLETION_ARTIFACTS.get(phase, ()))
+
+
+def phase_completion_ready(hackathon_dir: Path, phase: str) -> bool:
+    """Return True when the phase's required completion artifacts exist."""
+    if phase == "coding":
+        output = hackathon_dir / PHASE_PRIMARY_OUTPUTS["coding"]
+        return phase_output_is_complete("coding", hackathon_dir=hackathon_dir, phase_output=output)
+    paths = phase_completion_paths(hackathon_dir, phase)
+    return bool(paths) and all(output_exists(path) for path in paths)
+
+
+def reconcile_pipeline_state(store: PipelineStateStore, *, persist: bool = True) -> dict:
+    """Reconcile pipeline_state.json against actual hackathon artifacts.
+
+    The highest phase with completion artifacts becomes the effective checkpoint,
+    and all earlier phases are treated as complete to avoid impossible gaps like
+    planning=done with selection=pending.
+    """
+    state = store.load()
+    rows = {row["name"]: row for row in state["phases"]}
+    highest_complete_idx = -1
+
+    for idx, phase in enumerate(PHASES):
+        if phase_completion_ready(store.hackathon_dir, phase):
+            highest_complete_idx = idx
+
+    changed = False
+    if highest_complete_idx >= 0:
+        for idx, phase in enumerate(PHASES):
+            row = rows[phase]
+            status = row.get("status", "pending")
+            if idx <= highest_complete_idx:
+                desired = "done"
+            elif status in COMPLETED_PHASE_STATUSES:
+                desired = "pending"
+            else:
+                desired = status
+
+            if desired != status:
+                row["status"] = desired
+                row["updated_at"] = _utc_now()
+                changed = True
+
+        current_phase = state.get("current_phase")
+        if current_phase not in PHASES or rows[current_phase]["status"] != "running":
+            if state.get("current_phase") is not None:
+                changed = True
+            state["current_phase"] = None
+            if state.get("active_task") is not None:
+                changed = True
+            state["active_task"] = None
+
+        desired_checkpoint = PHASES[highest_complete_idx]
+        if state.get("last_checkpoint") != desired_checkpoint:
+            state["last_checkpoint"] = desired_checkpoint
+            changed = True
+
+        if not any(row.get("status") == "failed" for row in rows.values()) and state.get("last_error") is not None:
+            state["last_error"] = None
+            changed = True
+
+    state["phases"] = [rows[phase] for phase in PHASES]
+    if changed and persist:
+        store.save(state)
+    return state
+
+
 @dataclass(slots=True)
 class ValidationResult:
     ok: bool
@@ -126,17 +235,11 @@ class OrchestratorStateMachine:
         if phase not in PHASES:
             return ValidationResult(False, [f"Unknown phase: {phase}"])
 
-        state = self.store.load()
+        state = reconcile_pipeline_state(self.store)
         status_map = {row["name"]: row["status"] for row in state["phases"]}
 
         for dep in PHASE_DEPENDENCIES[phase]:
             if status_map.get(dep) not in COMPLETED_PHASE_STATUSES:
-                primary_output = PHASE_PRIMARY_OUTPUTS.get(dep)
-                dep_output = self.hackathon_dir / primary_output if primary_output else None
-                if dep_output is not None and output_exists(dep_output):
-                    self.store.set_phase_status(dep, "done")
-                    status_map[dep] = "done"
-                    continue
                 errors.append(f"Dependency not complete: {dep}")
 
         for req in REQUIRED_ARTIFACTS[phase]:
@@ -145,6 +248,9 @@ class OrchestratorStateMachine:
                 errors.append(f"Missing required artifact: hackathon/{req}")
 
         return ValidationResult(not errors, errors)
+
+    def phase_is_complete(self, phase: str) -> bool:
+        return phase_completion_ready(self.hackathon_dir, phase)
 
     def is_write_allowed(self, phase: str, target_rel: str) -> bool:
         target = target_rel.strip("/")

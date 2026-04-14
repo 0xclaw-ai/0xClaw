@@ -78,7 +78,7 @@ class RouteDecision:
     source: str
 
 
-def _keyword_matches(keyword: str, text: str) -> bool:
+def keyword_matches(keyword: str, text: str) -> bool:
     """Match keyword against text.
 
     Multi-word keywords use simple substring matching.
@@ -108,7 +108,7 @@ class SkillRouter:
         phase_scores: dict[str, int] = {}
         matched_keywords: dict[str, str] = {}
         for phase, keys in KEYWORD_MAP.items():
-            matched = [k for k in keys if _keyword_matches(k, text)]
+            matched = [k for k in keys if keyword_matches(k, text)]
             if not matched:
                 continue
             # Prefer more specific matches, e.g. "select idea" over the generic "idea".
