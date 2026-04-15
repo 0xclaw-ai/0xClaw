@@ -51,6 +51,7 @@ from orchestration.router import SkillRouter, keyword_matches
 from orchestration.session_control import SessionControl
 from orchestration.state import (
     COMPLETED_PHASE_STATUSES,
+    PHASE_COMPLETION_ARTIFACTS,
     OrchestratorStateMachine,
     PipelineStateStore,
     reconcile_pipeline_state,
@@ -331,7 +332,7 @@ def _show_pipeline_status(state_store: PipelineStateStore) -> None:
     }
     try:
         state = reconcile_pipeline_state(state_store, persist=False)
-    except Exception:
+    except (FileNotFoundError, json.JSONDecodeError):
         console.print("[dim]No pipeline state found. Run a phase to begin.[/dim]")
         return
 
@@ -628,7 +629,11 @@ def run_whatsapp_login() -> None:
 
 
 def _reset_phase_and_downstream(phase: str, state_store: PipelineStateStore) -> list[str]:
-    """Reset phase and all downstream phases to pending. Returns list of affected phase names."""
+    """Reset phase and all downstream phases to pending. Returns list of affected phase names.
+
+    Deletes artifact files for each reset phase so that reconcile_pipeline_state cannot
+    re-mark phases as done from stale outputs on the next /status or phase-entry call.
+    """
     idx = PHASES_LIST.index(phase)
     state = state_store.load()
     reset: list[str] = []
@@ -640,9 +645,17 @@ def _reset_phase_and_downstream(phase: str, state_store: PipelineStateStore) -> 
                 reset.append(row["name"])
     for name in PHASES_LIST[idx:]:
         clear_marker(HACKATHON_DIR, name)
+        for rel in PHASE_COMPLETION_ARTIFACTS.get(name, ()):
+            p = HACKATHON_DIR / rel
+            if p.is_dir():
+                shutil.rmtree(p, ignore_errors=True)
+            elif p.exists():
+                p.unlink(missing_ok=True)
+    # Compute the last completed checkpoint after deletion so /resume picks the right phase.
+    last_checkpoint = PHASES_LIST[idx - 1] if idx > 0 else None
     state["current_phase"] = None
     state["last_error"] = None
-    state["last_checkpoint"] = None
+    state["last_checkpoint"] = last_checkpoint
     state["active_task"] = None
     state_store.save(state)
     return reset
@@ -1136,6 +1149,7 @@ async def run_interactive(config: Config) -> None:
                     removed = _reset_hackathon_outputs() + _reset_workspace_runtime_outputs()
                     active_phase = None
                     active_trace_id = None
+                    bg_phase = None
                     if response.response:
                         console.print(f"[green]✓[/green]  {response.response.strip()}")
                     else:
@@ -1244,14 +1258,18 @@ async def run_interactive(config: Config) -> None:
                     continue
 
                 profile = profile_resolver.resolve(route.phase)
+                console.print(
+                    f"[dim]Phase[/dim] {route.phase} [dim]via {route.source} "
+                    f"(confidence {route.confidence:.2f})[/dim]"
+                )
                 if profile:
-                    console.print(
-                        f"[dim]Phase[/dim] {route.phase} [dim]via {route.source} "
-                        f"(confidence {route.confidence:.2f})[/dim]"
-                    )
                     console.print(
                         f"[dim]Profile[/dim] {profile.provider}/{profile.model} "
                         f"[dim](timeout {profile.timeout_s}s)[/dim]"
+                    )
+                else:
+                    console.print(
+                        f"[dim]Profile[/dim] default [dim](timeout {DEFAULT_PHASE_TIMEOUT_S}s)[/dim]"
                     )
 
                 _prepare_phase_run(route.phase)
