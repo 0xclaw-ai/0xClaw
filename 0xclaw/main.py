@@ -12,6 +12,7 @@ import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
+from itertools import count
 
 from loguru import logger
 from dotenv import load_dotenv
@@ -42,17 +43,18 @@ from orchestration.model_profiles import ModelProfileResolver
 from orchestration.phase_completion import (
     clear_marker,
     detect_failure_reason,
-    is_phase_complete,
     marker_path,
     output_exists as phase_output_exists,
     write_marker,
 )
-from orchestration.router import SkillRouter
+from orchestration.router import SkillRouter, keyword_matches
 from orchestration.session_control import SessionControl
 from orchestration.state import (
     COMPLETED_PHASE_STATUSES,
     OrchestratorStateMachine,
     PipelineStateStore,
+    phase_completion_ready,
+    reconcile_pipeline_state,
 )
 from orchestration.write_guard import build_phase_write_guard, install_phase_write_guards
 
@@ -329,7 +331,7 @@ def _show_pipeline_status(state_store: PipelineStateStore) -> None:
         "pending":   ("[dim]○[/dim]",          "pending",   "dim"),
     }
     try:
-        state = state_store.load()
+        state = reconcile_pipeline_state(state_store)
     except Exception:
         console.print("[dim]No pipeline state found. Run a phase to begin.[/dim]")
         return
@@ -366,13 +368,13 @@ def _output_exists(path: Path | None) -> bool:
 
 def _fallback_classifier(text: str) -> str | None:
     t = text.lower()
-    if "plan" in t or "规划" in t:
+    if keyword_matches("plan", t) or keyword_matches("规划", t):
         return "planning"
-    if "test" in t or "测试" in t:
+    if keyword_matches("test", t) or keyword_matches("测试", t):
         return "testing"
-    if "doc" in t or "文档" in t:
+    if keyword_matches("doc", t) or keyword_matches("文档", t):
         return "doc"
-    if "code" in t or "实现" in t:
+    if keyword_matches("code", t) or keyword_matches("实现", t):
         return "coding"
     return None
 
@@ -396,11 +398,7 @@ def _is_background_handoff_progress(text: str) -> bool:
 def _phase_is_complete(phase: str | None) -> bool:
     if not phase:
         return False
-    return is_phase_complete(
-        phase,
-        hackathon_dir=HACKATHON_DIR,
-        phase_output=PHASE_OUTPUTS.get(phase),
-    )
+    return phase_completion_ready(HACKATHON_DIR, phase)
 
 
 def _prepare_phase_run(phase: str) -> None:
@@ -419,6 +417,15 @@ class SendWaitResult:
     response: str
     timed_out: bool = False
     background_handoff: bool = False
+
+
+def _turn_request_id(sequence: int) -> str:
+    return f"cli-turn-{sequence}"
+
+
+def _matches_active_request(request_id: str | None, active_request_id: str | None) -> bool:
+    """Return True when an outbound message belongs to the currently awaited turn."""
+    return not request_id or request_id == active_request_id
 
 
 def _finalize_phase_run(
@@ -442,7 +449,7 @@ def _finalize_phase_run(
     if primary_output_ready:
         _mark_phase_complete(phase, trace_id)
 
-    if _phase_is_complete(phase):
+    if state_machine.phase_is_complete(phase):
         state_machine.checkpoint(phase, "done")
         return None, False
 
@@ -672,6 +679,9 @@ def _reset_workspace_runtime_outputs() -> list[str]:
         elif p.exists():
             p.unlink()
             removed.append(f"workspace/{rel}")
+    from runtime.agent.memory import MemoryStore as _MemoryStore
+
+    _MemoryStore(WORKSPACE).reset()
     return removed
 
 
@@ -840,6 +850,8 @@ async def run_interactive(config: Config) -> None:
     turn_done.set()
     turn_response: list[str] = []
     turn_saw_background_handoff = [False]
+    request_counter = count(1)
+    active_request_id: str | None = None
 
     # ── Ctrl+C handling — never exits, only interrupts the current task ────────
     _processing = [False]   # mutable so the signal handler closure can read it
@@ -867,9 +879,13 @@ async def run_interactive(config: Config) -> None:
 
     async def _consume():
         """Drain the outbound bus. Releases prompt as soon as agent replies."""
+        nonlocal active_request_id
         while True:
             try:
                 msg = await asyncio.wait_for(bus.consume_outbound(), timeout=1.0)
+                request_id = (msg.metadata or {}).get("request_id")
+                if not _matches_active_request(request_id, active_request_id):
+                    continue
                 if msg.metadata.get("_progress"):
                     if _is_background_handoff_progress(msg.content or ""):
                         turn_saw_background_handoff[0] = True
@@ -920,26 +936,38 @@ async def run_interactive(config: Config) -> None:
         timeout_s: int = DEFAULT_PHASE_TIMEOUT_S,
         phase: str | None = None,
     ) -> SendWaitResult:
+        nonlocal active_request_id
         _processing[0] = True
         turn_done.clear()
         turn_response.clear()
         turn_saw_background_handoff[0] = False
+        active_request_id = _turn_request_id(next(request_counter))
         await bus.publish_inbound(InboundMessage(
-            channel="cli", sender_id="user", chat_id="direct", content=text, metadata={"phase": phase} if phase else {},
+            channel="cli",
+            sender_id="user",
+            chat_id="direct",
+            content=text,
+            metadata={
+                **({"phase": phase} if phase else {}),
+                "request_id": active_request_id,
+            },
         ))
         try:
             with console.status("[dim]0xClaw is thinking…[/dim]", spinner="dots"):
                 await asyncio.wait_for(turn_done.wait(), timeout=timeout_s)
         except asyncio.TimeoutError:
             turn_done.set()
-            console.print(f"[yellow]Timed out after {timeout_s}s.[/yellow]")
+            active_request_id = None
+            console.print(f"[yellow]Timed out after {timeout_s}s waiting for agent confirmation.[/yellow]")
             return SendWaitResult("", timed_out=True, background_handoff=turn_saw_background_handoff[0])
         finally:
             _processing[0] = False
-        return SendWaitResult(
+        result = SendWaitResult(
             turn_response[0] if turn_response else "",
             background_handoff=turn_saw_background_handoff[0],
         )
+        active_request_id = None
+        return result
 
     async def _send_and_wait_traced(
         text: str,

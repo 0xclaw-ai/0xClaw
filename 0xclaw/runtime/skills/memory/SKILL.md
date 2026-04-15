@@ -21,11 +21,18 @@ Use the `exec` tool to run grep. Combine patterns: `grep -iE "meeting|deadline" 
 
 ## When to Update MEMORY.md
 
-Write important facts immediately using `edit_file` or `write_file`:
-- User preferences ("I prefer dark mode")
-- Project context ("The API uses OAuth2")
-- Relationships ("Alice is the project lead")
+Write only durable cross-session facts:
+- User preferences ("I prefer Chinese", "Use FastAPI by default")
+- Stable working conventions ("Prefer pytest", "Use pnpm in this repo family")
+- Long-lived relationships ("Alice is the project lead")
+
+Do NOT write transient execution state:
+- Hackathon research results
+- Current pipeline phase or task progress
+- Generated artifact lists
+- Temporary implementation/debug status
+- Anything that should reset with `/new`
 
 ## Auto-consolidation
 
-Old conversations are automatically summarized and appended to HISTORY.md when the session grows large. Long-term facts are extracted to MEMORY.md. You don't need to manage this.
+Old conversations are automatically summarized and appended to HISTORY.md when the session grows large. Long-term facts may be extracted to MEMORY.md, but only durable preferences and enduring facts belong there.
