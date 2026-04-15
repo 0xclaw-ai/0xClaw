@@ -29,7 +29,6 @@ def _load_reset_phase_helper() -> dict:
     from orchestration.state import PHASES, PHASE_COMPLETION_ARTIFACTS, PipelineStateStore
     from orchestration.phase_completion import clear_marker
 
-    # PHASES_LIST is derived from PHASE_OUTPUTS.keys() in main.py; inject it directly.
     phases_list = list(PHASES)
 
     namespace: dict = {
@@ -40,9 +39,7 @@ def _load_reset_phase_helper() -> dict:
         "PipelineStateStore": PipelineStateStore,
         "clear_marker": clear_marker,
     }
-    compiled = compile(
-        ast.Module(body=selected, type_ignores=[]), str(MAIN_PATH), "exec"
-    )
+    compiled = compile(ast.Module(body=selected, type_ignores=[]), str(MAIN_PATH), "exec")
     exec(compiled, namespace)
     return namespace
 
@@ -56,8 +53,8 @@ class RedoCleanupTests(unittest.TestCase):
         hackathon_dir = tmp_root / "hackathon"
         hackathon_dir.mkdir(parents=True, exist_ok=True)
         from orchestration.state import PipelineStateStore
+
         store = PipelineStateStore(hackathon_dir)
-        # Mark all phases done.
         state = store.load()
         for row in state["phases"]:
             row["status"] = "done"
@@ -68,17 +65,24 @@ class RedoCleanupTests(unittest.TestCase):
     def _write_all_artifacts(self, hackathon_dir: Path) -> None:
         """Create realistic completion artifacts for all phases."""
         (hackathon_dir / "context.json").write_text('{"k":1}' * 5, encoding="utf-8")
+        (hackathon_dir / "research_summary.md").write_text("# Research\n" * 5, encoding="utf-8")
         (hackathon_dir / "ideas.json").write_text('[{"id":1}]' * 5, encoding="utf-8")
         (hackathon_dir / "selected_idea.json").write_text('{"id":1}' * 5, encoding="utf-8")
         (hackathon_dir / "plan.md").write_text("# Plan\n" * 5, encoding="utf-8")
         (hackathon_dir / "tasks.json").write_text('[{"t":1}]' * 5, encoding="utf-8")
+
         project = hackathon_dir / "project"
         project.mkdir(exist_ok=True)
         (project / "main.py").write_text("print('ok')" * 2, encoding="utf-8")
+        (project / "README.md").write_text("# Project Readme\n" * 5, encoding="utf-8")
+
         (hackathon_dir / "test_results.json").write_text('{"ok":1}' * 5, encoding="utf-8")
-        sub = hackathon_dir / "submission"
-        sub.mkdir(exist_ok=True)
-        (sub / "README.md").write_text("# Readme\n" * 5, encoding="utf-8")
+
+        submission = hackathon_dir / "submission"
+        submission.mkdir(exist_ok=True)
+        (submission / "README.md").write_text("# Readme\n" * 5, encoding="utf-8")
+        (submission / "SUBMISSION.md").write_text("# Submission\n" * 5, encoding="utf-8")
+        (submission / "PITCH.md").write_text("# Pitch\n" * 5, encoding="utf-8")
 
     def test_redo_idea_deletes_downstream_artifacts(self) -> None:
         with TemporaryDirectory() as tmp:
@@ -91,7 +95,6 @@ class RedoCleanupTests(unittest.TestCase):
 
             reset = ns["_reset_phase_and_downstream"]("idea", store)
 
-            # idea and downstream should be reset
             self.assertIn("idea", reset)
             self.assertIn("selection", reset)
             self.assertIn("planning", reset)
@@ -99,7 +102,6 @@ class RedoCleanupTests(unittest.TestCase):
             self.assertIn("testing", reset)
             self.assertIn("doc", reset)
 
-            # completion artifacts for reset phases must be deleted
             self.assertFalse((hackathon_dir / "ideas.json").exists())
             self.assertFalse((hackathon_dir / "selected_idea.json").exists())
             self.assertFalse((hackathon_dir / "plan.md").exists())
@@ -107,9 +109,11 @@ class RedoCleanupTests(unittest.TestCase):
             self.assertFalse((hackathon_dir / "project").exists())
             self.assertFalse((hackathon_dir / "test_results.json").exists())
             self.assertFalse((hackathon_dir / "submission" / "README.md").exists())
+            self.assertFalse((hackathon_dir / "submission" / "SUBMISSION.md").exists())
+            self.assertFalse((hackathon_dir / "submission" / "PITCH.md").exists())
 
-            # upstream artifact (research) must survive
             self.assertTrue((hackathon_dir / "context.json").exists())
+            self.assertTrue((hackathon_dir / "research_summary.md").exists())
 
     def test_redo_research_deletes_all_artifacts(self) -> None:
         with TemporaryDirectory() as tmp:
@@ -124,10 +128,10 @@ class RedoCleanupTests(unittest.TestCase):
 
             self.assertIn("research", reset)
             self.assertFalse((hackathon_dir / "context.json").exists())
+            self.assertFalse((hackathon_dir / "research_summary.md").exists())
             self.assertFalse((hackathon_dir / "ideas.json").exists())
 
     def test_redo_planning_preserves_checkpoint_at_selection(self) -> None:
-        """After /redo planning, last_checkpoint should point to selection (not None)."""
         with TemporaryDirectory() as tmp:
             tmp_root = Path(tmp)
             hackathon_dir, store = self._make_state(tmp_root)
@@ -166,17 +170,37 @@ class RedoCleanupTests(unittest.TestCase):
 
             ns["_reset_phase_and_downstream"]("testing", store)
 
-            # upstream artifacts survive
             self.assertTrue((hackathon_dir / "context.json").exists())
+            self.assertTrue((hackathon_dir / "research_summary.md").exists())
             self.assertTrue((hackathon_dir / "ideas.json").exists())
             self.assertTrue((hackathon_dir / "selected_idea.json").exists())
             self.assertTrue((hackathon_dir / "plan.md").exists())
             self.assertTrue((hackathon_dir / "tasks.json").exists())
             self.assertTrue((hackathon_dir / "project").exists())
+            self.assertTrue((hackathon_dir / "project" / "main.py").exists())
 
-            # testing and doc artifacts are gone
+            self.assertFalse((hackathon_dir / "project" / "README.md").exists())
             self.assertFalse((hackathon_dir / "test_results.json").exists())
             self.assertFalse((hackathon_dir / "submission" / "README.md").exists())
+            self.assertFalse((hackathon_dir / "submission" / "SUBMISSION.md").exists())
+            self.assertFalse((hackathon_dir / "submission" / "PITCH.md").exists())
+
+    def test_redo_doc_deletes_project_readme_copy(self) -> None:
+        with TemporaryDirectory() as tmp:
+            tmp_root = Path(tmp)
+            hackathon_dir, store = self._make_state(tmp_root)
+            self._write_all_artifacts(hackathon_dir)
+
+            ns = self.ns
+            ns["HACKATHON_DIR"] = hackathon_dir
+
+            ns["_reset_phase_and_downstream"]("doc", store)
+
+            self.assertFalse((hackathon_dir / "submission" / "README.md").exists())
+            self.assertFalse((hackathon_dir / "submission" / "SUBMISSION.md").exists())
+            self.assertFalse((hackathon_dir / "submission" / "PITCH.md").exists())
+            self.assertFalse((hackathon_dir / "project" / "README.md").exists())
+            self.assertTrue((hackathon_dir / "project" / "main.py").exists())
 
 
 if __name__ == "__main__":

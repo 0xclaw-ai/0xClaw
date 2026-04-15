@@ -16,15 +16,17 @@ class SpawnTool(Tool):
         self._origin_channel = "cli"
         self._origin_chat_id = "direct"
         self._session_key = "cli:direct"
+        self._request_id: str | None = None
         self._phase: str | None = None
         self._spawn_allowed = True
         self._spawn_block_reason: str | None = None
 
-    def set_context(self, channel: str, chat_id: str) -> None:
+    def set_context(self, channel: str, chat_id: str, request_id: str | None = None) -> None:
         """Set the origin context for subagent announcements."""
         self._origin_channel = channel
         self._origin_chat_id = chat_id
         self._session_key = f"{channel}:{chat_id}"
+        self._request_id = request_id
 
     def set_phase_context(self, phase: str | None) -> None:
         """Set the current pipeline phase for backend selection."""
@@ -76,4 +78,5 @@ class SpawnTool(Tool):
             origin_channel=self._origin_channel,
             origin_chat_id=self._origin_chat_id,
             session_key=self._session_key,
+            request_id=self._request_id,
         )

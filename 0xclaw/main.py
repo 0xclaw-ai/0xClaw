@@ -419,7 +419,22 @@ def _turn_request_id(sequence: int) -> str:
 
 def _matches_active_request(request_id: str | None, active_request_id: str | None) -> bool:
     """Return True when an outbound message belongs to the currently awaited turn."""
-    return not request_id or request_id == active_request_id
+    return active_request_id is not None and request_id == active_request_id
+
+
+def _classify_outbound_request(
+    request_id: str | None,
+    active_request_id: str | None,
+    background_request_id: str | None,
+) -> str | None:
+    """Classify an outbound message as active-turn, background, or unscoped."""
+    if _matches_active_request(request_id, active_request_id):
+        return "active"
+    if background_request_id is not None and request_id == background_request_id:
+        return "background"
+    if active_request_id is None and background_request_id is None and request_id is None:
+        return "unscoped"
+    return None
 
 
 def _finalize_phase_run(
@@ -667,7 +682,7 @@ def _reset_hackathon_outputs() -> list[str]:
     for rel in HACKATHON_RUNTIME_PATHS:
         p = HACKATHON_DIR / rel
         if p.is_dir():
-            shutil.rmtree(p, ignore_errors=True)
+            shutil.rmtree(p)
             removed.append(rel + "/")
         elif p.exists():
             p.unlink()
@@ -680,7 +695,7 @@ def _reset_workspace_runtime_outputs() -> list[str]:
     for rel in WORKSPACE_RUNTIME_PATHS:
         p = WORKSPACE / rel
         if p.is_dir():
-            shutil.rmtree(p, ignore_errors=True)
+            shutil.rmtree(p)
             removed.append(f"workspace/{rel}/")
         elif p.exists():
             p.unlink()
@@ -858,6 +873,7 @@ async def run_interactive(config: Config) -> None:
     turn_saw_background_handoff = [False]
     request_counter = count(1)
     active_request_id: str | None = None
+    background_request_id: str | None = None
 
     # ── Ctrl+C handling — never exits, only interrupts the current task ────────
     _processing = [False]   # mutable so the signal handler closure can read it
@@ -885,12 +901,22 @@ async def run_interactive(config: Config) -> None:
 
     async def _consume():
         """Drain the outbound bus. Releases prompt as soon as agent replies."""
-        nonlocal active_request_id
+        nonlocal active_request_id, background_request_id
         while True:
             try:
                 msg = await asyncio.wait_for(bus.consume_outbound(), timeout=1.0)
                 request_id = (msg.metadata or {}).get("request_id")
-                if not _matches_active_request(request_id, active_request_id):
+                scope = _classify_outbound_request(request_id, active_request_id, background_request_id)
+                if scope is None:
+                    continue
+                if scope == "background":
+                    if msg.metadata.get("_progress") and msg.content:
+                        console.print(f"  [dim]↳ {msg.content}[/dim]")
+                    elif msg.content:
+                        console.print()
+                        console.print("[bold #fbbf24]🦀  0xClaw[/bold #fbbf24]")
+                        console.print(Markdown(msg.content))
+                        console.print()
                     continue
                 if msg.metadata.get("_progress"):
                     if _is_background_handoff_progress(msg.content or ""):
@@ -919,7 +945,7 @@ async def run_interactive(config: Config) -> None:
 
     async def _monitor_background() -> None:
         """Poll for background phase output every 4 s; notify user on completion."""
-        nonlocal bg_phase
+        nonlocal bg_phase, background_request_id
         while True:
             await asyncio.sleep(4)
             if not bg_phase:
@@ -928,6 +954,7 @@ async def run_interactive(config: Config) -> None:
                 state_machine.checkpoint(bg_phase, "done")
                 finished = bg_phase
                 bg_phase = None
+                background_request_id = None
                 console.print(
                     f"\n[bold green]✓[/bold green]  Phase [#7c3aed]{finished}[/#7c3aed] complete"
                     " — type [bold #fbbf24]/resume[/bold #fbbf24] to continue.\n"
@@ -942,7 +969,7 @@ async def run_interactive(config: Config) -> None:
         timeout_s: int = DEFAULT_PHASE_TIMEOUT_S,
         phase: str | None = None,
     ) -> SendWaitResult:
-        nonlocal active_request_id
+        nonlocal active_request_id, background_request_id
         _processing[0] = True
         turn_done.clear()
         turn_response.clear()
@@ -972,8 +999,52 @@ async def run_interactive(config: Config) -> None:
             turn_response[0] if turn_response else "",
             background_handoff=turn_saw_background_handoff[0],
         )
+        if result.background_handoff:
+            background_request_id = active_request_id
+        else:
+            background_request_id = None
         active_request_id = None
         return result
+
+    async def _confirm_stop_running_phase() -> bool:
+        nonlocal active_phase, active_trace_id, bg_phase, background_request_id
+        target_phase = active_phase or bg_phase
+        if not target_phase:
+            return True
+        response = await _send_and_wait(
+            "/stop",
+            timeout_s=30,
+            phase=target_phase,
+        )
+        if response.timed_out:
+            console.print(
+                f"[red]Could not confirm stop for phase [#7c3aed]{target_phase}[/#7c3aed]. "
+                "It may still be running.[/red]"
+            )
+            return False
+        stopped_work = (
+            "Stopped " in response.response
+            and " task(s)." in response.response
+            and "Stopped 0 task(s)." not in response.response
+        )
+        no_active_task = response.response.strip() == "No active task to stop."
+        if no_active_task and target_phase:
+            console.print(
+                f"[red]Stop was not confirmed for phase [#7c3aed]{target_phase}[/#7c3aed]. "
+                "Refusing to reset while local state still shows active work.[/red]"
+            )
+            return False
+        if stopped_work:
+            state_machine.checkpoint(target_phase, "cancelled", last_error="Cancelled by /stop")
+        active_phase = None
+        active_trace_id = None
+        bg_phase = None
+        background_request_id = None
+        if response.response:
+            console.print(f"[yellow]{response.response.strip()}[/yellow]")
+        else:
+            console.print("[yellow]⏹  Stop confirmed.[/yellow]")
+        return True
 
     try:
         while True:
@@ -1039,24 +1110,10 @@ async def run_interactive(config: Config) -> None:
                     continue
 
                 if lower == "/stop":
-                    target_phase = active_phase or bg_phase
-                    if not target_phase:
+                    if not (active_phase or bg_phase):
                         console.print("[yellow]No active task to stop.[/yellow]")
                         continue
-                    response = await _send_and_wait(
-                        "/stop",
-                        timeout_s=30,
-                        phase=target_phase,
-                    )
-                    if target_phase:
-                        state_machine.checkpoint(target_phase, "cancelled", last_error="Cancelled by /stop")
-                    active_phase = None
-                    active_trace_id = None
-                    bg_phase = None
-                    if response.response:
-                        console.print(f"[yellow]{response.response.strip()}[/yellow]")
-                    else:
-                        console.print("[yellow]⏹  Stop signal sent.[/yellow]")
+                    await _confirm_stop_running_phase()
                     continue
 
                 if lower.startswith("/redo"):
@@ -1076,6 +1133,10 @@ async def run_interactive(config: Config) -> None:
                             + "  ".join(f"[dim]{i + 1}.[/dim][#7c3aed]{p}[/#7c3aed]" for i, p in enumerate(PHASES_LIST))
                         )
                         continue
+                    if active_phase or bg_phase:
+                        console.print("[dim]Stopping current work before redo…[/dim]")
+                        if not await _confirm_stop_running_phase():
+                            continue
                     reset = _reset_phase_and_downstream(target_phase, state_store)
                     console.print(f"[dim]Reset:[/dim] {', '.join(reset)}")
                     redo_cmd = REDO_COMMANDS[target_phase]
@@ -1140,6 +1201,11 @@ async def run_interactive(config: Config) -> None:
                     continue
 
                 if lower == "/new":
+                    if active_phase or bg_phase:
+                        console.print("[dim]Stopping current work before reset…[/dim]")
+                        if not await _confirm_stop_running_phase():
+                            console.print("[red]/new aborted because the running phase could not be stopped safely.[/red]")
+                            continue
                     console.print("[dim]Resetting session…[/dim]")
                     response = await _send_and_wait(
                         "/new",

@@ -147,6 +147,7 @@ class OrchestratorStateMachineValidationTests(unittest.TestCase):
             store = PipelineStateStore(hackathon_dir)
             store.set_phase_status("research", "done")
             (hackathon_dir / "context.json").write_text('{"valid": true}', encoding="utf-8")
+            (hackathon_dir / "research_summary.md").write_text("# summary\n" * 5, encoding="utf-8")
 
             sm = OrchestratorStateMachine(workspace, store)
             result = sm.validate_phase_entry("idea")
@@ -158,8 +159,9 @@ class OrchestratorStateMachineValidationTests(unittest.TestCase):
             hackathon_dir = workspace / "hackathon"
             hackathon_dir.mkdir()
             store = PipelineStateStore(hackathon_dir)
-            # research status is "pending" but output file exists
+            # research status is "pending" but output files exist
             (hackathon_dir / "context.json").write_text('{"auto": "mark"}' * 2, encoding="utf-8")
+            (hackathon_dir / "research_summary.md").write_text("# summary\n" * 5, encoding="utf-8")
 
             sm = OrchestratorStateMachine(workspace, store)
             result = sm.validate_phase_entry("idea")
@@ -281,6 +283,7 @@ class ReconcilePipelineStateTests(unittest.TestCase):
         with TemporaryDirectory() as tmp:
             hackathon_dir, store = self._make_store(tmp)
             self._write(hackathon_dir / "context.json")
+            self._write(hackathon_dir / "research_summary.md", "# summary\n" * 5)
             state = reconcile_pipeline_state(store)
             status_map = {r["name"]: r["status"] for r in state["phases"]}
             self.assertIn(status_map["research"], COMPLETED_PHASE_STATUSES)
@@ -291,8 +294,77 @@ class ReconcilePipelineStateTests(unittest.TestCase):
         with TemporaryDirectory() as tmp:
             hackathon_dir, store = self._make_store(tmp)
             self._write(hackathon_dir / "context.json")
+            self._write(hackathon_dir / "research_summary.md", "# summary\n" * 5)
             state = reconcile_pipeline_state(store)
             self.assertEqual(state["last_checkpoint"], "research")
+
+    def test_research_requires_summary_artifact(self) -> None:
+        with TemporaryDirectory() as tmp:
+            hackathon_dir, store = self._make_store(tmp)
+            self._write(hackathon_dir / "context.json")
+            state = reconcile_pipeline_state(store)
+            status_map = {r["name"]: r["status"] for r in state["phases"]}
+            self.assertEqual(status_map["research"], "pending")
+
+    def test_doc_requires_all_submission_artifacts(self) -> None:
+        with TemporaryDirectory() as tmp:
+            hackathon_dir, store = self._make_store(tmp)
+            self._write(hackathon_dir / "submission" / "README.md", "# readme\n" * 5)
+            self._write(hackathon_dir / "submission" / "SUBMISSION.md", "# submission\n" * 5)
+            self._write(hackathon_dir / "submission" / "PITCH.md", "# pitch\n" * 5)
+            self._write(hackathon_dir / "project" / "README.md", "# project readme\n" * 5)
+            state = reconcile_pipeline_state(store)
+            status_map = {r["name"]: r["status"] for r in state["phases"]}
+            self.assertIn(status_map["doc"], COMPLETED_PHASE_STATUSES)
+
+    def test_doc_missing_project_readme_stays_pending(self) -> None:
+        with TemporaryDirectory() as tmp:
+            hackathon_dir, store = self._make_store(tmp)
+            self._write(hackathon_dir / "submission" / "README.md", "# readme\n" * 5)
+            self._write(hackathon_dir / "submission" / "SUBMISSION.md", "# submission\n" * 5)
+            self._write(hackathon_dir / "submission" / "PITCH.md", "# pitch\n" * 5)
+            state = reconcile_pipeline_state(store)
+            status_map = {r["name"]: r["status"] for r in state["phases"]}
+            self.assertEqual(status_map["doc"], "pending")
+
+    def test_no_artifacts_resets_stale_done_rows(self) -> None:
+        with TemporaryDirectory() as tmp:
+            hackathon_dir, store = self._make_store(tmp)
+            state = store.load()
+            for row in state["phases"]:
+                row["status"] = "done"
+            state["last_checkpoint"] = "doc"
+            store.save(state)
+            reconciled = reconcile_pipeline_state(store)
+            status_map = {r["name"]: r["status"] for r in reconciled["phases"]}
+            for phase in PHASES:
+                self.assertEqual(status_map[phase], "pending")
+            self.assertIsNone(reconciled["last_checkpoint"])
+
+    def test_no_artifacts_clears_stale_running_phase(self) -> None:
+        with TemporaryDirectory() as tmp:
+            hackathon_dir, store = self._make_store(tmp)
+            state = store.load()
+            state["current_phase"] = "coding"
+            state["active_task"] = "task-123"
+            for row in state["phases"]:
+                if row["name"] == "coding":
+                    row["status"] = "running"
+            store.save(state)
+            reconciled = reconcile_pipeline_state(store)
+            self.assertIsNone(reconciled["current_phase"])
+            self.assertIsNone(reconciled["active_task"])
+            status_map = {r["name"]: r["status"] for r in reconciled["phases"]}
+            self.assertEqual(status_map["coding"], "pending")
+
+    def test_no_artifacts_clears_last_error(self) -> None:
+        with TemporaryDirectory() as tmp:
+            hackathon_dir, store = self._make_store(tmp)
+            state = store.load()
+            state["last_error"] = "stale error"
+            store.save(state)
+            reconciled = reconcile_pipeline_state(store)
+            self.assertIsNone(reconciled["last_error"])
 
     # ── fill-gap logic ─────────────────────────────────────────────────────────
 
@@ -326,12 +398,13 @@ class ReconcilePipelineStateTests(unittest.TestCase):
         """Phase marked 'done' in state but artifacts deleted → reset to pending."""
         with TemporaryDirectory() as tmp:
             hackathon_dir, store = self._make_store(tmp)
-            # Mark all phases done in state file, but only research artifact exists
+            # Mark all phases done in state file, but only research artifacts exist
             state = store.load()
             for row in state["phases"]:
                 row["status"] = "done"
             store.save(state)
             self._write(hackathon_dir / "context.json")
+            self._write(hackathon_dir / "research_summary.md", "# summary\n" * 5)
 
             reconciled = reconcile_pipeline_state(store)
             status_map = {r["name"]: r["status"] for r in reconciled["phases"]}
@@ -345,6 +418,7 @@ class ReconcilePipelineStateTests(unittest.TestCase):
         with TemporaryDirectory() as tmp:
             hackathon_dir, store = self._make_store(tmp)
             self._write(hackathon_dir / "context.json")
+            self._write(hackathon_dir / "research_summary.md", "# summary\n" * 5)
             reconcile_pipeline_state(store, persist=False)
             # Even though research is complete, persist=False → no file written
             self.assertFalse(store.path.exists())
@@ -353,6 +427,7 @@ class ReconcilePipelineStateTests(unittest.TestCase):
         with TemporaryDirectory() as tmp:
             hackathon_dir, store = self._make_store(tmp)
             self._write(hackathon_dir / "context.json")
+            self._write(hackathon_dir / "research_summary.md", "# summary\n" * 5)
             reconcile_pipeline_state(store, persist=True)
             self.assertTrue(store.path.exists())
             loaded = store.load()
@@ -366,6 +441,7 @@ class ReconcilePipelineStateTests(unittest.TestCase):
         with TemporaryDirectory() as tmp:
             hackathon_dir, store = self._make_store(tmp)
             self._write(hackathon_dir / "context.json")
+            self._write(hackathon_dir / "research_summary.md", "# summary\n" * 5)
             state = store.load()
             state["current_phase"] = "research"
             state["active_task"] = "task-xyz"
@@ -380,6 +456,7 @@ class ReconcilePipelineStateTests(unittest.TestCase):
         with TemporaryDirectory() as tmp:
             hackathon_dir, store = self._make_store(tmp)
             self._write(hackathon_dir / "context.json")
+            self._write(hackathon_dir / "research_summary.md", "# summary\n" * 5)
             state = store.load()
             state["last_error"] = "some old error"
             store.save(state)
