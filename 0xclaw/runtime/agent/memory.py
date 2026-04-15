@@ -45,6 +45,23 @@ _SAVE_MEMORY_TOOL = [
 class MemoryStore:
     """Two-layer memory: MEMORY.md (long-term facts) + HISTORY.md (grep-searchable log)."""
 
+    DEFAULT_MEMORY_TEMPLATE = """# Long-term Memory
+
+This file stores stable user information that should persist across sessions.
+
+## User Information
+
+(Important facts about the user)
+
+## Preferences
+
+(Stable preferences like language, tone, frameworks, or tooling)
+
+## Important Notes
+
+(Only durable facts worth carrying across conversations)
+"""
+
     def __init__(self, workspace: Path):
         self.memory_dir = ensure_dir(workspace / "memory")
         self.memory_file = self.memory_dir / "MEMORY.md"
@@ -61,6 +78,12 @@ class MemoryStore:
     def append_history(self, entry: str) -> None:
         with open(self.history_file, "a", encoding="utf-8") as f:
             f.write(entry.rstrip() + "\n\n")
+
+    def reset(self) -> None:
+        """Reset both memory files to an empty session-safe state."""
+        self.memory_dir.mkdir(parents=True, exist_ok=True)
+        self.memory_file.write_text(self.DEFAULT_MEMORY_TEMPLATE + "\n", encoding="utf-8")
+        self.history_file.write_text("", encoding="utf-8")
 
     def get_memory_context(self) -> str:
         long_term = self.read_long_term()
@@ -103,6 +126,11 @@ class MemoryStore:
 
         current_memory = self.read_long_term()
         prompt = f"""Process this conversation and call the save_memory tool with your consolidation.
+
+Only preserve durable cross-session memory. Keep long-term memory limited to stable user preferences,
+ongoing identity-level facts, and enduring project conventions. Do NOT store transient hackathon state,
+phase progress, generated artifacts, temporary research findings, or task-specific implementation status.
+Those belong in workspace output files, not long-term memory.
 
 ## Current Long-term Memory
 {current_memory or "(empty)"}

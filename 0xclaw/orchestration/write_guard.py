@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Callable
 
-from .state import OrchestratorStateMachine
+from .state import OrchestratorStateMachine, PROTECTED_PIPELINE_PATHS
 
 WriteGuard = Callable[[str], str | None]
 PhaseGetter = Callable[[], str | None]
@@ -20,10 +20,6 @@ def build_phase_write_guard(
     workspace_root = workspace.resolve()
 
     def _guard(path: str) -> str | None:
-        phase = get_phase()
-        if not phase:
-            return None
-
         p = Path(path).expanduser()
         if not p.is_absolute():
             p = workspace_root / p
@@ -33,6 +29,17 @@ def build_phase_write_guard(
             rel = resolved.relative_to(workspace_root).as_posix()
         except ValueError:
             return f"Path '{path}' is outside workspace"
+
+        phase = get_phase()
+        if not phase:
+            for prefix in PROTECTED_PIPELINE_PATHS:
+                normalized = prefix.strip("/")
+                if rel == normalized or rel.startswith(normalized + "/"):
+                    return (
+                        f"Pipeline artifact '{rel}' cannot be written outside an active phase. "
+                        "Use the corresponding phase command or /resume."
+                    )
+            return None
 
         try:
             state_machine.assert_write_allowed(phase, rel)

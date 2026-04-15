@@ -23,7 +23,6 @@ Do not ask clarifying questions. Proceed autonomously through all steps.
 
 Step 1 — Load existing workspace context (do this first):
   read_file("AGENTS.md")
-  read_file("memory/MEMORY.md")
   read_file("SOUL.md")
 
 Step 2 — Fetch the hackathon pages using web_fetch:
