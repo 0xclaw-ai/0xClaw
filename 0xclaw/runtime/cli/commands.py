@@ -313,6 +313,7 @@ def gateway(
             session_key=f"cron:{job.id}",
             channel=job.payload.channel or "cli",
             chat_id=job.payload.to or "direct",
+            metadata={"_notification": True},
         )
 
         message_tool = agent.tools.get("message")
@@ -324,7 +325,8 @@ def gateway(
             await bus.publish_outbound(OutboundMessage(
                 channel=job.payload.channel or "cli",
                 chat_id=job.payload.to,
-                content=response
+                content=response,
+                metadata={"_notification": True},
             ))
         return response
     cron.on_job = on_cron_job
@@ -362,6 +364,7 @@ def gateway(
             channel=channel,
             chat_id=chat_id,
             on_progress=_silent,
+            metadata={"_notification": True},
         )
 
     async def on_heartbeat_notify(response: str) -> None:
@@ -369,8 +372,16 @@ def gateway(
         from runtime.bus.events import OutboundMessage
         channel, chat_id = _pick_heartbeat_target()
         if channel == "cli":
-            return  # No external channel available to deliver to
-        await bus.publish_outbound(OutboundMessage(channel=channel, chat_id=chat_id, content=response))
+            console.print("[yellow]Warning: heartbeat notification has no external channel target; dropping response.[/yellow]")
+            return
+        await bus.publish_outbound(
+            OutboundMessage(
+                channel=channel,
+                chat_id=chat_id,
+                content=response,
+                metadata={"_notification": True},
+            )
+        )
 
     hb_cfg = config.gateway.heartbeat
     heartbeat = HeartbeatService(
