@@ -53,13 +53,13 @@ PHASE_COMPLETION_ARTIFACTS: dict[str, tuple[str, ...]] = {
 }
 
 PHASE_ALLOWED_WRITE_DIRS: dict[str, tuple[str, ...]] = {
-    "research": ("hackathon/context.json", "hackathon/pipeline_state.json", "hackathon/progress.md"),
+    "research": ("hackathon/context.json", "hackathon/research_summary.md", "hackathon/pipeline_state.json", "hackathon/progress.md"),
     "idea": ("hackathon/ideas.json", "hackathon/pipeline_state.json", "hackathon/progress.md"),
     "selection": ("hackathon/selected_idea.json", "hackathon/pipeline_state.json", "hackathon/progress.md"),
     "planning": ("hackathon/plan.md", "hackathon/tasks.json", "hackathon/pipeline_state.json", "hackathon/progress.md"),
     "coding": ("hackathon/project", "hackathon/pipeline_state.json", "hackathon/progress.md"),
     "testing": ("hackathon/test_results.json", "hackathon/pipeline_state.json", "hackathon/progress.md"),
-    "doc": ("hackathon/submission", "hackathon/pipeline_state.json", "hackathon/progress.md"),
+    "doc": ("hackathon/submission", "hackathon/project/README.md", "hackathon/pipeline_state.json", "hackathon/progress.md"),
 }
 
 PROTECTED_PIPELINE_PATHS = tuple(

@@ -70,6 +70,25 @@ class BuildPhaseWriteGuardTests(unittest.TestCase):
             result = guard(str(Path(tmp) / "hackathon" / "submission" / "README.md"))
             self.assertIsNone(result)
 
+    def test_guard_allows_research_summary_for_research(self) -> None:
+        with TemporaryDirectory() as tmp:
+            guard = self._make_guard(tmp, ["research"])
+            result = guard(str(Path(tmp) / "hackathon" / "research_summary.md"))
+            self.assertIsNone(result)
+
+    def test_guard_allows_project_readme_for_doc(self) -> None:
+        with TemporaryDirectory() as tmp:
+            guard = self._make_guard(tmp, ["doc"])
+            result = guard(str(Path(tmp) / "hackathon" / "project" / "README.md"))
+            self.assertIsNone(result)
+
+    def test_guard_blocks_project_readme_for_research(self) -> None:
+        """Only doc phase may copy to project/README.md."""
+        with TemporaryDirectory() as tmp:
+            guard = self._make_guard(tmp, ["research"])
+            result = guard(str(Path(tmp) / "hackathon" / "project" / "README.md"))
+            self.assertIsNotNone(result)
+
     def test_guard_blocks_outside_workspace(self) -> None:
         with TemporaryDirectory() as tmp:
             guard = self._make_guard(tmp, ["research"])
