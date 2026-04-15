@@ -13,6 +13,7 @@ from orchestration.state import (
     PHASES,
     OrchestratorStateMachine,
     PipelineStateStore,
+    reconcile_pipeline_state,
 )
 
 
@@ -159,7 +160,6 @@ class OrchestratorStateMachineValidationTests(unittest.TestCase):
             store = PipelineStateStore(hackathon_dir)
             # research status is "pending" but output file exists
             (hackathon_dir / "context.json").write_text('{"auto": "mark"}' * 2, encoding="utf-8")
-            (hackathon_dir / "context.json")  # ensure > 10 bytes
 
             sm = OrchestratorStateMachine(workspace, store)
             result = sm.validate_phase_entry("idea")
@@ -243,6 +243,148 @@ class OrchestratorWritePermissionTests(unittest.TestCase):
             sm = self._make_sm(tmp)
             state = sm.checkpoint("research", "done")
             self.assertEqual(state["last_checkpoint"], "research")
+
+
+class ReconcilePipelineStateTests(unittest.TestCase):
+    """Tests for reconcile_pipeline_state fill-gap logic."""
+
+    def _make_store(self, tmp: str) -> tuple[Path, "PipelineStateStore"]:
+        workspace = Path(tmp)
+        hackathon_dir = workspace / "hackathon"
+        hackathon_dir.mkdir(parents=True)
+        return hackathon_dir, PipelineStateStore(hackathon_dir)
+
+    def _write(self, path: Path, content: str = '{"ok": true, "padding": "xxxxxxxxxx"}') -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content, encoding="utf-8")
+
+    # ── no artifacts ──────────────────────────────────────────────────────────
+
+    def test_no_artifacts_leaves_all_pending(self) -> None:
+        with TemporaryDirectory() as tmp:
+            hackathon_dir, store = self._make_store(tmp)
+            state = reconcile_pipeline_state(store)
+            status_map = {r["name"]: r["status"] for r in state["phases"]}
+            for phase in PHASES:
+                self.assertEqual(status_map[phase], "pending", f"{phase} should stay pending")
+
+    def test_no_artifacts_does_not_write_state_file(self) -> None:
+        with TemporaryDirectory() as tmp:
+            hackathon_dir, store = self._make_store(tmp)
+            reconcile_pipeline_state(store)
+            # No artifacts → no changes → file not written
+            self.assertFalse(store.path.exists())
+
+    # ── single phase artifacts ─────────────────────────────────────────────────
+
+    def test_research_artifact_marks_research_done(self) -> None:
+        with TemporaryDirectory() as tmp:
+            hackathon_dir, store = self._make_store(tmp)
+            self._write(hackathon_dir / "context.json")
+            state = reconcile_pipeline_state(store)
+            status_map = {r["name"]: r["status"] for r in state["phases"]}
+            self.assertIn(status_map["research"], COMPLETED_PHASE_STATUSES)
+            for phase in ("idea", "selection", "planning", "coding", "testing", "doc"):
+                self.assertEqual(status_map[phase], "pending")
+
+    def test_research_artifact_updates_last_checkpoint(self) -> None:
+        with TemporaryDirectory() as tmp:
+            hackathon_dir, store = self._make_store(tmp)
+            self._write(hackathon_dir / "context.json")
+            state = reconcile_pipeline_state(store)
+            self.assertEqual(state["last_checkpoint"], "research")
+
+    # ── fill-gap logic ─────────────────────────────────────────────────────────
+
+    def test_planning_artifacts_fill_gap_to_research(self) -> None:
+        """All phases up to planning are marked done even if earlier artifacts are absent."""
+        with TemporaryDirectory() as tmp:
+            hackathon_dir, store = self._make_store(tmp)
+            # Only planning artifacts present; research/idea/selection have no files
+            self._write(hackathon_dir / "plan.md")
+            self._write(hackathon_dir / "tasks.json")
+            state = reconcile_pipeline_state(store)
+            status_map = {r["name"]: r["status"] for r in state["phases"]}
+            for phase in ("research", "idea", "selection", "planning"):
+                self.assertIn(status_map[phase], COMPLETED_PHASE_STATUSES, f"{phase} should be done")
+            for phase in ("coding", "testing", "doc"):
+                self.assertEqual(status_map[phase], "pending")
+
+    def test_planning_requires_both_artifacts(self) -> None:
+        """planning is NOT considered complete with only plan.md (tasks.json missing)."""
+        with TemporaryDirectory() as tmp:
+            hackathon_dir, store = self._make_store(tmp)
+            self._write(hackathon_dir / "plan.md")
+            # tasks.json intentionally absent
+            state = reconcile_pipeline_state(store)
+            status_map = {r["name"]: r["status"] for r in state["phases"]}
+            self.assertEqual(status_map["planning"], "pending")
+
+    # ── stale "done" status reset ──────────────────────────────────────────────
+
+    def test_stale_done_status_reset_when_beyond_highest(self) -> None:
+        """Phase marked 'done' in state but artifacts deleted → reset to pending."""
+        with TemporaryDirectory() as tmp:
+            hackathon_dir, store = self._make_store(tmp)
+            # Mark all phases done in state file, but only research artifact exists
+            state = store.load()
+            for row in state["phases"]:
+                row["status"] = "done"
+            store.save(state)
+            self._write(hackathon_dir / "context.json")
+
+            reconciled = reconcile_pipeline_state(store)
+            status_map = {r["name"]: r["status"] for r in reconciled["phases"]}
+            self.assertIn(status_map["research"], COMPLETED_PHASE_STATUSES)
+            for phase in ("idea", "selection", "planning", "coding", "testing", "doc"):
+                self.assertEqual(status_map[phase], "pending", f"stale 'done' for {phase} should be reset")
+
+    # ── persist=False ──────────────────────────────────────────────────────────
+
+    def test_persist_false_does_not_write_file(self) -> None:
+        with TemporaryDirectory() as tmp:
+            hackathon_dir, store = self._make_store(tmp)
+            self._write(hackathon_dir / "context.json")
+            reconcile_pipeline_state(store, persist=False)
+            # Even though research is complete, persist=False → no file written
+            self.assertFalse(store.path.exists())
+
+    def test_persist_true_writes_file(self) -> None:
+        with TemporaryDirectory() as tmp:
+            hackathon_dir, store = self._make_store(tmp)
+            self._write(hackathon_dir / "context.json")
+            reconcile_pipeline_state(store, persist=True)
+            self.assertTrue(store.path.exists())
+            loaded = store.load()
+            status_map = {r["name"]: r["status"] for r in loaded["phases"]}
+            self.assertIn(status_map["research"], COMPLETED_PHASE_STATUSES)
+
+    # ── current_phase / active_task clearing ──────────────────────────────────
+
+    def test_stale_current_phase_cleared(self) -> None:
+        """current_phase stuck as non-running phase is cleared during reconcile."""
+        with TemporaryDirectory() as tmp:
+            hackathon_dir, store = self._make_store(tmp)
+            self._write(hackathon_dir / "context.json")
+            state = store.load()
+            state["current_phase"] = "research"
+            state["active_task"] = "task-xyz"
+            store.save(state)
+            reconciled = reconcile_pipeline_state(store)
+            self.assertIsNone(reconciled["current_phase"])
+            self.assertIsNone(reconciled["active_task"])
+
+    # ── last_error clearing ────────────────────────────────────────────────────
+
+    def test_last_error_cleared_when_no_failed_phases(self) -> None:
+        with TemporaryDirectory() as tmp:
+            hackathon_dir, store = self._make_store(tmp)
+            self._write(hackathon_dir / "context.json")
+            state = store.load()
+            state["last_error"] = "some old error"
+            store.save(state)
+            reconciled = reconcile_pipeline_state(store)
+            self.assertIsNone(reconciled["last_error"])
 
 
 if __name__ == "__main__":

@@ -53,7 +53,6 @@ from orchestration.state import (
     COMPLETED_PHASE_STATUSES,
     OrchestratorStateMachine,
     PipelineStateStore,
-    phase_completion_ready,
     reconcile_pipeline_state,
 )
 from orchestration.write_guard import build_phase_write_guard, install_phase_write_guards
@@ -331,7 +330,7 @@ def _show_pipeline_status(state_store: PipelineStateStore) -> None:
         "pending":   ("[dim]○[/dim]",          "pending",   "dim"),
     }
     try:
-        state = reconcile_pipeline_state(state_store)
+        state = reconcile_pipeline_state(state_store, persist=False)
     except Exception:
         console.print("[dim]No pipeline state found. Run a phase to begin.[/dim]")
         return
@@ -393,12 +392,6 @@ def _is_spawn_started_message(text: str) -> bool:
 def _is_background_handoff_progress(text: str) -> bool:
     t = (text or "").strip()
     return t.startswith('spawn("') or _is_spawn_started_message(t)
-
-
-def _phase_is_complete(phase: str | None) -> bool:
-    if not phase:
-        return False
-    return phase_completion_ready(HACKATHON_DIR, phase)
 
 
 def _prepare_phase_run(phase: str) -> None:
@@ -918,7 +911,7 @@ async def run_interactive(config: Config) -> None:
             await asyncio.sleep(4)
             if not bg_phase:
                 continue
-            if _phase_is_complete(bg_phase):
+            if state_machine.phase_is_complete(bg_phase):
                 state_machine.checkpoint(bg_phase, "done")
                 finished = bg_phase
                 bg_phase = None
@@ -968,24 +961,6 @@ async def run_interactive(config: Config) -> None:
         )
         active_request_id = None
         return result
-
-    async def _send_and_wait_traced(
-        text: str,
-        *,
-        timeout_s: int = DEFAULT_PHASE_TIMEOUT_S,
-        command: str,
-        phase: str | None,
-        route_source: str | None = None,
-    ) -> SendWaitResult:
-        if command in {"/new", "/stop"}:
-            return await _send_and_wait(text, timeout_s=timeout_s, phase=phase)
-
-        # Only trace turns that actually produced a model response.
-        response = await _send_and_wait(text, timeout_s=timeout_s, phase=phase)
-        if not response.response:
-            return response
-
-        return response
 
     try:
         while True:
@@ -1055,12 +1030,10 @@ async def run_interactive(config: Config) -> None:
                     if not target_phase:
                         console.print("[yellow]No active task to stop.[/yellow]")
                         continue
-                    response = await _send_and_wait_traced(
+                    response = await _send_and_wait(
                         "/stop",
                         timeout_s=30,
-                        command=cmd,
                         phase=target_phase,
-                        route_source="slash",
                     )
                     if target_phase:
                         state_machine.checkpoint(target_phase, "cancelled", last_error="Cancelled by /stop")
@@ -1129,12 +1102,10 @@ async def run_interactive(config: Config) -> None:
                         + json.dumps(redo_envelope.to_dict(), ensure_ascii=False)
                     )
                     redo_timeout = redo_profile.timeout_s if redo_profile else DEFAULT_PHASE_TIMEOUT_S
-                    response = await _send_and_wait_traced(
+                    response = await _send_and_wait(
                         redo_message,
                         timeout_s=redo_timeout,
-                        command=redo_cmd,
                         phase=redo_route.phase,
-                        route_source=redo_route.source,
                     )
                     _, handed_off = _finalize_phase_run(
                         phase=redo_route.phase,
@@ -1157,12 +1128,10 @@ async def run_interactive(config: Config) -> None:
 
                 if lower == "/new":
                     console.print("[dim]Resetting session…[/dim]")
-                    response = await _send_and_wait_traced(
+                    response = await _send_and_wait(
                         "/new",
                         timeout_s=30,
-                        command=cmd,
                         phase=active_phase,
-                        route_source="slash",
                     )
                     removed = _reset_hackathon_outputs() + _reset_workspace_runtime_outputs()
                     active_phase = None
@@ -1224,12 +1193,10 @@ async def run_interactive(config: Config) -> None:
                         + json.dumps(envelope.to_dict(), ensure_ascii=False)
                     )
                     timeout_s = profile.timeout_s if profile else DEFAULT_PHASE_TIMEOUT_S
-                    response = await _send_and_wait_traced(
+                    response = await _send_and_wait(
                         message,
                         timeout_s=timeout_s,
-                        command=cmd,
                         phase=route.phase,
-                        route_source=route.source,
                     )
                     _, handed_off = _finalize_phase_run(
                         phase=route.phase,
@@ -1308,12 +1275,10 @@ async def run_interactive(config: Config) -> None:
                     + json.dumps(envelope.to_dict(), ensure_ascii=False)
                 )
                 timeout_s = profile.timeout_s if profile else DEFAULT_PHASE_TIMEOUT_S
-                response = await _send_and_wait_traced(
+                response = await _send_and_wait(
                     routed_input,
                     timeout_s=timeout_s,
-                    command=cmd,
                     phase=route.phase,
-                    route_source=route.source,
                 )
                 _, handed_off = _finalize_phase_run(
                     phase=route.phase,
@@ -1325,12 +1290,7 @@ async def run_interactive(config: Config) -> None:
                 active_phase = None
                 active_trace_id = None
             else:
-                response = await _send_and_wait_traced(
-                    user_input,
-                    command=cmd,
-                    phase=None,
-                    route_source="none",
-                )
+                response = await _send_and_wait(user_input)
 
             if response.response:
                 console.print()

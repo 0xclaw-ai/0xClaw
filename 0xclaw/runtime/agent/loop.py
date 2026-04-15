@@ -500,7 +500,6 @@ class AgentLoop:
         cmd = msg.content.strip().lower()
         if cmd == "/new":
             self._consolidating.discard(session.key)
-            MemoryStore(self.workspace).reset()
             session.clear()
             self.sessions.save(session)
             self.sessions.invalidate(session.key)
