@@ -1,10 +1,12 @@
 import ast
+import sys
 from pathlib import Path
 import shutil
 from tempfile import TemporaryDirectory
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "0xclaw"))
 MAIN_PATH = ROOT / "0xclaw" / "main.py"
 
 
