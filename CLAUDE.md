@@ -47,7 +47,7 @@ Layer 1 — 0xClaw (the agent we maintain)
   0xclaw/main.py            CLI entry point, interactive REPL, slash commands
   0xclaw/orchestration/     Phase routing, state machine, write guards, model profiles
   0xclaw/config/            config.json (providers), model_profiles.json (per-phase settings)
-  0xclaw/runtime/           Integrated agent runtime engine (DO NOT modify except providers/registry.py + config/schema.py)
+  0xclaw/runtime/           Integrated agent runtime engine (modify carefully; prefer leaving core engine untouched unless a runtime bug fix is required)
   launcher/                 CLI entry point wrapper (resolves 0x hex-literal import issue)
   workspace/                Agent identity, skills, pipeline state
 
@@ -114,8 +114,8 @@ non-`done` phase and returning its natural-language command (via `PHASE_TO_COMMA
 ## Runtime internals
 
 > The agent runtime lives in `0xclaw/runtime/`. It is the execution engine for all agent
-> behaviour — do not modify it except `runtime/providers/registry.py` and `runtime/config/schema.py`
-> (our FLock additions). All imports use `from runtime.xxx import yyy`.
+> behaviour — prefer not to modify it unless a runtime bug fix is required. Keep changes
+> tightly scoped, and preserve existing `from runtime.xxx import yyy` import style.
 
 **Skills** — `SKILL.md` files in `workspace/skills/{name}/`. Frontmatter key is `openclaw`.
 Auto-loaded when `always: true` is set; loaded on-demand via `read_file` otherwise.
@@ -170,7 +170,7 @@ provider when no model-level override is active.
 | `/resume` | Resume from last pipeline checkpoint (reads `pipeline_state.json`) |
 | `/redo <phase>` | Reset one phase (and downstream phases) and run it again |
 | `/new` | Reset session — clears all hackathon runtime outputs |
-| `/stop` | Cancel the currently running sub-agent task |
+| `/stop` | Cancel the currently running agent/sub-agent work for the current session |
 | `/exit` | Exit the CLI |
 | `/help` | Show this list |
 | `?` | Alias for `/help` |
@@ -178,7 +178,8 @@ provider when no model-level override is active.
 
 Phase commands are free-form natural language routed by `SkillRouter`. Each phase invocation
 wraps the input in an `Envelope` and sends it to the `AgentLoop` with a per-phase timeout from
-`model_profiles.json`. The `/stop` command routes directly through `_send_and_wait_traced()`.
+`model_profiles.json`. The `/stop` command sends a `"/stop"` inbound message through the same
+message bus so the runtime can cancel active session tasks and running subagents.
 
 ---
 
@@ -205,7 +206,7 @@ Additional runtime files (also gitignored):
 
 ## Rules and constraints
 
-- **Only modify `runtime/providers/registry.py` and `runtime/config/schema.py`** — all other files in `0xclaw/runtime/` are the engine; leave them alone
+- **Prefer not to modify `0xclaw/runtime/`** — it is the engine; only make tightly scoped runtime changes when fixing real runtime bugs, and keep the rest of the engine untouched
 - **Never commit `.env`** — gitignored, but double-check before any push
 - **All workspace/hackathon/ outputs are gitignored** — they are runtime artefacts, not source
 - **Sub-agent task strings must be self-contained** — sub-agents have no shared memory

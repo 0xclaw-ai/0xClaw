@@ -43,13 +43,18 @@ PHASE_PRIMARY_OUTPUTS: dict[str, str] = {
 }
 
 PHASE_COMPLETION_ARTIFACTS: dict[str, tuple[str, ...]] = {
-    "research": ("context.json",),
+    "research": ("context.json", "research_summary.md"),
     "idea": ("ideas.json",),
     "selection": ("selected_idea.json",),
     "planning": ("plan.md", "tasks.json"),
     "coding": ("project",),
     "testing": ("test_results.json",),
-    "doc": ("submission/README.md",),
+    "doc": (
+        "submission/README.md",
+        "submission/SUBMISSION.md",
+        "submission/PITCH.md",
+        "project/README.md",
+    ),
 }
 
 PHASE_ALLOWED_WRITE_DIRS: dict[str, tuple[str, ...]] = {
@@ -166,6 +171,9 @@ def reconcile_pipeline_state(store: PipelineStateStore, *, persist: bool = True)
     The highest phase with completion artifacts becomes the effective checkpoint,
     and all earlier phases are treated as complete to avoid impossible gaps like
     planning=done with selection=pending.
+
+    If no completion artifacts exist at all, stale completed/running state is
+    reset back to the empty-session baseline.
     """
     state = store.load()
     rows = {row["name"]: row for row in state["phases"]}
@@ -176,39 +184,41 @@ def reconcile_pipeline_state(store: PipelineStateStore, *, persist: bool = True)
             highest_complete_idx = idx
 
     changed = False
-    if highest_complete_idx >= 0:
-        for idx, phase in enumerate(PHASES):
-            row = rows[phase]
-            status = row.get("status", "pending")
+    for idx, phase in enumerate(PHASES):
+        row = rows[phase]
+        status = row.get("status", "pending")
+        if highest_complete_idx >= 0:
             if idx <= highest_complete_idx:
                 desired = "done"
             elif status in COMPLETED_PHASE_STATUSES:
                 desired = "pending"
             else:
                 desired = status
+        else:
+            desired = "pending" if status in COMPLETED_PHASE_STATUSES or status == "running" else status
 
-            if desired != status:
-                row["status"] = desired
-                row["updated_at"] = _utc_now()
-                changed = True
-
-        current_phase = state.get("current_phase")
-        if current_phase not in PHASES or rows[current_phase]["status"] != "running":
-            if state.get("current_phase") is not None:
-                changed = True
-            state["current_phase"] = None
-            if state.get("active_task") is not None:
-                changed = True
-            state["active_task"] = None
-
-        desired_checkpoint = PHASES[highest_complete_idx]
-        if state.get("last_checkpoint") != desired_checkpoint:
-            state["last_checkpoint"] = desired_checkpoint
+        if desired != status:
+            row["status"] = desired
+            row["updated_at"] = _utc_now()
             changed = True
 
-        if not any(row.get("status") == "failed" for row in rows.values()) and state.get("last_error") is not None:
-            state["last_error"] = None
+    current_phase = state.get("current_phase")
+    if current_phase not in PHASES or rows.get(current_phase, {}).get("status") != "running":
+        if state.get("current_phase") is not None:
             changed = True
+        state["current_phase"] = None
+        if state.get("active_task") is not None:
+            changed = True
+        state["active_task"] = None
+
+    desired_checkpoint = PHASES[highest_complete_idx] if highest_complete_idx >= 0 else None
+    if state.get("last_checkpoint") != desired_checkpoint:
+        state["last_checkpoint"] = desired_checkpoint
+        changed = True
+
+    if not any(row.get("status") == "failed" for row in rows.values()) and state.get("last_error") is not None:
+        state["last_error"] = None
+        changed = True
 
     state["phases"] = [rows[phase] for phase in PHASES]
     if changed and persist:

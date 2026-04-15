@@ -16,7 +16,10 @@ class LegacyPipelineStatusTests(unittest.TestCase):
             workspace = Path(tmp)
             hackathon_dir = workspace / "hackathon"
             hackathon_dir.mkdir(parents=True)
-            (hackathon_dir / "selected_idea.json").write_text("{}", encoding="utf-8")
+            (hackathon_dir / "context.json").write_text('{"ok": true, "padding": "xxxxxxxxxx"}', encoding="utf-8")
+            (hackathon_dir / "research_summary.md").write_text("# summary\n" * 5, encoding="utf-8")
+            (hackathon_dir / "ideas.json").write_text('[{"id":1,"padding":"xxxxxxxxxx"}]', encoding="utf-8")
+            (hackathon_dir / "selected_idea.json").write_text('{"id":1,"padding":"xxxxxxxxxx"}', encoding="utf-8")
 
             store = PipelineStateStore(hackathon_dir)
             state = store.load()
@@ -32,6 +35,11 @@ class LegacyPipelineStatusTests(unittest.TestCase):
     def test_resume_treats_complete_as_finished(self) -> None:
         with TemporaryDirectory() as tmp:
             hackathon_dir = Path(tmp)
+            (hackathon_dir / "context.json").write_text('{"ok": true, "padding": "xxxxxxxxxx"}', encoding="utf-8")
+            (hackathon_dir / "research_summary.md").write_text("# summary\n" * 5, encoding="utf-8")
+            (hackathon_dir / "ideas.json").write_text('[{"id":1,"padding":"xxxxxxxxxx"}]', encoding="utf-8")
+            (hackathon_dir / "selected_idea.json").write_text('{"id":1,"padding":"xxxxxxxxxx"}', encoding="utf-8")
+
             store = PipelineStateStore(hackathon_dir)
             state = store.load()
             for row in state["phases"]:
@@ -42,6 +50,8 @@ class LegacyPipelineStatusTests(unittest.TestCase):
 
             decision = SessionControl(store).get_resume_decision()
             self.assertEqual(decision.phase, "planning")
+            self.assertEqual(decision.command, "plan architecture")
+            self.assertIn("selection", decision.reason)
 
 
 if __name__ == "__main__":

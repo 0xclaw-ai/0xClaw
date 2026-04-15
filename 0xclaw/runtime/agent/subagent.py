@@ -92,11 +92,12 @@ class SubagentManager:
         origin_channel: str = "cli",
         origin_chat_id: str = "direct",
         session_key: str | None = None,
+        request_id: str | None = None,
     ) -> str:
         """Spawn a subagent to execute a task in the background."""
         task_id = str(uuid.uuid4())[:8]
         display_label = label or task[:30] + ("..." if len(task) > 30 else "")
-        origin = {"channel": origin_channel, "chat_id": origin_chat_id}
+        origin = {"channel": origin_channel, "chat_id": origin_chat_id, "request_id": request_id}
         backend_decision = self._resolve_backend(phase=phase, label=display_label, task=task)
 
         bg_task = asyncio.create_task(
@@ -302,6 +303,7 @@ Summarize this naturally for the user. Keep it brief (1-2 sentences). Do not men
             sender_id="subagent",
             chat_id=f"{origin['channel']}:{origin['chat_id']}",
             content=announce_content,
+            metadata={"request_id": origin.get("request_id")},
         )
 
         await self.bus.publish_inbound(msg)
@@ -314,7 +316,7 @@ Summarize this naturally for the user. Keep it brief (1-2 sentences). Do not men
                 channel=origin["channel"],
                 chat_id=origin["chat_id"],
                 content=content,
-                metadata={"_progress": True},
+                metadata={"_progress": True, "request_id": origin.get("request_id")},
             )
         )
     

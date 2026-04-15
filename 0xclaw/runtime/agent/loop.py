@@ -163,12 +163,18 @@ class AgentLoop:
         chat_id: str,
         message_id: str | None = None,
         phase: str | None = None,
+        request_id: str | None = None,
     ) -> None:
         """Update context for all tools that need routing info."""
         for name in ("message", "spawn", "cron"):
             if tool := self.tools.get(name):
                 if hasattr(tool, "set_context"):
-                    tool.set_context(channel, chat_id, *([message_id] if name == "message" else []))
+                    if name == "message":
+                        tool.set_context(channel, chat_id, message_id, request_id)
+                    elif name == "spawn":
+                        tool.set_context(channel, chat_id, request_id)
+                    else:
+                        tool.set_context(channel, chat_id)
                 if name == "spawn" and hasattr(tool, "set_phase_context"):
                     tool.set_phase_context(phase)
 
@@ -425,7 +431,10 @@ class AgentLoop:
         total = cancelled + sub_cancelled
         content = f"⏹ Stopped {total} task(s)." if total else "No active task to stop."
         await self.bus.publish_outbound(OutboundMessage(
-            channel=msg.channel, chat_id=msg.chat_id, content=content,
+            channel=msg.channel,
+            chat_id=msg.chat_id,
+            content=content,
+            metadata=msg.metadata or {},
         ))
 
     async def _dispatch(self, msg: InboundMessage) -> None:
@@ -446,8 +455,10 @@ class AgentLoop:
             except Exception:
                 logger.exception("Error processing message for session {}", msg.session_key)
                 await self.bus.publish_outbound(OutboundMessage(
-                    channel=msg.channel, chat_id=msg.chat_id,
+                    channel=msg.channel,
+                    chat_id=msg.chat_id,
                     content="Sorry, I encountered an error.",
+                    metadata=msg.metadata or {},
                 ))
 
     async def close_mcp(self) -> None:
@@ -478,7 +489,13 @@ class AgentLoop:
             logger.info("Processing system message from {}", msg.sender_id)
             key = f"{channel}:{chat_id}"
             session = self.sessions.get_or_create(key)
-            self._set_tool_context(channel, chat_id, msg.metadata.get("message_id"), msg.metadata.get("phase"))
+            self._set_tool_context(
+                channel,
+                chat_id,
+                msg.metadata.get("message_id"),
+                msg.metadata.get("phase"),
+                msg.metadata.get("request_id"),
+            )
             history = session.get_history(max_messages=self.memory_window)
             messages = self.context.build_messages(
                 history=history,
@@ -487,8 +504,12 @@ class AgentLoop:
             final_content, _, all_msgs = await self._run_agent_loop(messages, phase=msg.metadata.get("phase"))
             self._save_turn(session, all_msgs, 1 + len(history))
             self.sessions.save(session)
-            return OutboundMessage(channel=channel, chat_id=chat_id,
-                                  content=final_content or "Background task completed.")
+            return OutboundMessage(
+                channel=channel,
+                chat_id=chat_id,
+                content=final_content or "Background task completed.",
+                metadata=msg.metadata or {},
+            )
 
         preview = msg.content[:80] + "..." if len(msg.content) > 80 else msg.content
         logger.info("Processing message from {}:{}: {}", msg.channel, msg.sender_id, preview)
@@ -503,11 +524,19 @@ class AgentLoop:
             session.clear()
             self.sessions.save(session)
             self.sessions.invalidate(session.key)
-            return OutboundMessage(channel=msg.channel, chat_id=msg.chat_id,
-                                  content="New session started.")
+            return OutboundMessage(
+                channel=msg.channel,
+                chat_id=msg.chat_id,
+                content="New session started.",
+                metadata=msg.metadata or {},
+            )
         if cmd == "/help":
-            return OutboundMessage(channel=msg.channel, chat_id=msg.chat_id,
-                                  content="🦀 0xClaw commands:\n/new — Start a new conversation\n/stop — Stop the current task\n/help — Show available commands")
+            return OutboundMessage(
+                channel=msg.channel,
+                chat_id=msg.chat_id,
+                content="🦀 0xClaw commands:\n/new — Start a new conversation\n/stop — Stop the current task\n/help — Show available commands",
+                metadata=msg.metadata or {},
+            )
 
         unconsolidated = len(session.messages) - session.last_consolidated
         if (unconsolidated >= self.memory_window and session.key not in self._consolidating):
@@ -527,7 +556,13 @@ class AgentLoop:
             _task = asyncio.create_task(_consolidate_and_unlock())
             self._consolidation_tasks.add(_task)
 
-        self._set_tool_context(msg.channel, msg.chat_id, msg.metadata.get("message_id"), msg.metadata.get("phase"))
+        self._set_tool_context(
+            msg.channel,
+            msg.chat_id,
+            msg.metadata.get("message_id"),
+            msg.metadata.get("phase"),
+            msg.metadata.get("request_id"),
+        )
         self._set_spawn_policy(phase=msg.metadata.get("phase"))
         if message_tool := self.tools.get("message"):
             if isinstance(message_tool, MessageTool):
