@@ -392,7 +392,7 @@ def _is_spawn_started_message(text: str) -> bool:
 
 def _is_background_handoff_progress(text: str) -> bool:
     t = (text or "").strip()
-    return t.startswith('spawn("') or _is_spawn_started_message(t)
+    return _is_spawn_started_message(t)
 
 
 def _prepare_phase_run(phase: str) -> None:
@@ -426,15 +426,42 @@ def _classify_outbound_request(
     request_id: str | None,
     active_request_id: str | None,
     background_request_id: str | None,
+    *,
+    is_notification: bool = False,
 ) -> str | None:
-    """Classify an outbound message as active-turn, background, or unscoped."""
+    """Classify an outbound message as active-turn, background, notification, or unscoped."""
     if _matches_active_request(request_id, active_request_id):
         return "active"
     if background_request_id is not None and request_id == background_request_id:
         return "background"
+    if is_notification:
+        return "notification"
     if active_request_id is None and background_request_id is None and request_id is None:
         return "unscoped"
     return None
+
+
+def _background_request_id_for_turn(
+    request_id: str | None,
+    *,
+    background_handoff: bool,
+) -> str | None:
+    """Keep request routing alive for a handed-off background turn."""
+    return request_id if background_handoff else None
+
+
+def _interpret_stop_response(response_text: str, target_phase: str | None) -> tuple[bool, bool]:
+    """Return (confirmed, stopped_work) for a /stop reply."""
+    stopped_work = (
+        "Stopped " in response_text
+        and " task(s)." in response_text
+        and "Stopped 0 task(s)." not in response_text
+    )
+    confirmed = stopped_work or response_text.strip() in {
+        "⏹ Stopped 0 task(s).",
+        "Stopped 0 task(s).",
+    }
+    return confirmed, stopped_work
 
 
 def _finalize_phase_run(
@@ -905,20 +932,42 @@ async def run_interactive(config: Config) -> None:
         while True:
             try:
                 msg = await asyncio.wait_for(bus.consume_outbound(), timeout=1.0)
-                request_id = (msg.metadata or {}).get("request_id")
-                scope = _classify_outbound_request(request_id, active_request_id, background_request_id)
+                metadata = msg.metadata or {}
+                request_id = metadata.get("request_id")
+                scope = _classify_outbound_request(
+                    request_id,
+                    active_request_id,
+                    background_request_id,
+                    is_notification=bool(metadata.get("_notification")),
+                )
                 if scope is None:
+                    preview = (msg.content or "").strip().replace("\n", " ")
+                    if len(preview) > 120:
+                        preview = preview[:117] + "..."
+                    logger.warning(
+                        "Dropping outbound message with unmatched request scope "
+                        "request_id={} active_request_id={} background_request_id={} "
+                        "notification={} progress={} preview={}",
+                        request_id,
+                        active_request_id,
+                        background_request_id,
+                        bool(metadata.get("_notification")),
+                        bool(metadata.get("_progress")),
+                        preview,
+                    )
                     continue
-                if scope == "background":
-                    if msg.metadata.get("_progress") and msg.content:
+                if scope in {"background", "notification"}:
+                    if metadata.get("_progress") and msg.content:
                         console.print(f"  [dim]↳ {msg.content}[/dim]")
                     elif msg.content:
                         console.print()
                         console.print("[bold #fbbf24]🦀  0xClaw[/bold #fbbf24]")
                         console.print(Markdown(msg.content))
                         console.print()
+                        if scope == "background" and not bg_phase:
+                            background_request_id = None
                     continue
-                if msg.metadata.get("_progress"):
+                if metadata.get("_progress"):
                     if _is_background_handoff_progress(msg.content or ""):
                         turn_saw_background_handoff[0] = True
                     console.print(f"  [dim]↳ {msg.content}[/dim]")
@@ -954,7 +1003,6 @@ async def run_interactive(config: Config) -> None:
                 state_machine.checkpoint(bg_phase, "done")
                 finished = bg_phase
                 bg_phase = None
-                background_request_id = None
                 console.print(
                     f"\n[bold green]✓[/bold green]  Phase [#7c3aed]{finished}[/#7c3aed] complete"
                     " — type [bold #fbbf24]/resume[/bold #fbbf24] to continue.\n"
@@ -990,6 +1038,10 @@ async def run_interactive(config: Config) -> None:
                 await asyncio.wait_for(turn_done.wait(), timeout=timeout_s)
         except asyncio.TimeoutError:
             turn_done.set()
+            background_request_id = _background_request_id_for_turn(
+                active_request_id,
+                background_handoff=turn_saw_background_handoff[0],
+            )
             active_request_id = None
             console.print(f"[yellow]Timed out after {timeout_s}s waiting for agent confirmation.[/yellow]")
             return SendWaitResult("", timed_out=True, background_handoff=turn_saw_background_handoff[0])
@@ -999,10 +1051,10 @@ async def run_interactive(config: Config) -> None:
             turn_response[0] if turn_response else "",
             background_handoff=turn_saw_background_handoff[0],
         )
-        if result.background_handoff:
-            background_request_id = active_request_id
-        else:
-            background_request_id = None
+        background_request_id = _background_request_id_for_turn(
+            active_request_id,
+            background_handoff=result.background_handoff,
+        )
         active_request_id = None
         return result
 
@@ -1022,13 +1074,18 @@ async def run_interactive(config: Config) -> None:
                 "It may still be running.[/red]"
             )
             return False
-        stopped_work = (
-            "Stopped " in response.response
-            and " task(s)." in response.response
-            and "Stopped 0 task(s)." not in response.response
-        )
-        no_active_task = response.response.strip() == "No active task to stop."
-        if no_active_task and target_phase:
+        confirmed, stopped_work = _interpret_stop_response(response.response, target_phase)
+        if not confirmed and state_machine.phase_is_complete(target_phase):
+            state_machine.checkpoint(target_phase, "done")
+            active_phase = None
+            active_trace_id = None
+            bg_phase = None
+            background_request_id = None
+            console.print(
+                f"[dim]Phase [#7c3aed]{target_phase}[/#7c3aed] had already completed; continuing.[/dim]"
+            )
+            return True
+        if not confirmed:
             console.print(
                 f"[red]Stop was not confirmed for phase [#7c3aed]{target_phase}[/#7c3aed]. "
                 "Refusing to reset while local state still shows active work.[/red]"
@@ -1212,14 +1269,19 @@ async def run_interactive(config: Config) -> None:
                         timeout_s=30,
                         phase=active_phase,
                     )
+                    if response.timed_out or response.response.strip() != "New session started.":
+                        detail = response.response.strip()
+                        if detail:
+                            console.print(f"[red]/new aborted because reset was not confirmed: {detail}[/red]")
+                        else:
+                            console.print("[red]/new aborted because reset was not confirmed.[/red]")
+                        continue
                     removed = _reset_hackathon_outputs() + _reset_workspace_runtime_outputs()
                     active_phase = None
                     active_trace_id = None
                     bg_phase = None
-                    if response.response:
-                        console.print(f"[green]✓[/green]  {response.response.strip()}")
-                    else:
-                        console.print("[green]✓  Fresh session ready.[/green]")
+                    background_request_id = None
+                    console.print(f"[green]✓[/green]  {response.response.strip()}")
                     if removed:
                         console.print(f"[dim]Cleared hackathon outputs:[/dim] {len(removed)} item(s)")
                     console.print()
@@ -1446,6 +1508,7 @@ async def run_gateway(config: Config, *, port: int | None = None, verbose: bool 
             session_key=f"cron:{job.id}",
             channel=job.payload.channel or "cli",
             chat_id=job.payload.to or "direct",
+            metadata={"_notification": True},
         )
 
         message_tool = agent.tools.get("message")
@@ -1458,6 +1521,7 @@ async def run_gateway(config: Config, *, port: int | None = None, verbose: bool 
                     channel=job.payload.channel or "cli",
                     chat_id=job.payload.to,
                     content=response,
+                    metadata={"_notification": True},
                 )
             )
         return response
@@ -1492,15 +1556,22 @@ async def run_gateway(config: Config, *, port: int | None = None, verbose: bool 
             channel=channel,
             chat_id=chat_id,
             on_progress=_silent,
+            metadata={"_notification": True},
         )
 
     async def on_heartbeat_notify(response: str) -> None:
         """Send heartbeat output back to the active external channel."""
         channel, chat_id = _pick_heartbeat_target()
         if channel == "cli":
+            console.print("[yellow]Warning: heartbeat notification has no external channel target; dropping response.[/yellow]")
             return
         await bus.publish_outbound(
-            OutboundMessage(channel=channel, chat_id=chat_id, content=response)
+            OutboundMessage(
+                channel=channel,
+                chat_id=chat_id,
+                content=response,
+                metadata={"_notification": True},
+            )
         )
 
     hb_cfg = config.gateway.heartbeat
