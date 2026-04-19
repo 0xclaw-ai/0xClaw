@@ -21,6 +21,7 @@ from runtime.bus.events import InboundMessage, OutboundMessage
 from runtime.config.schema import SubagentsConfig
 from runtime.bus.queue import MessageBus
 from runtime.config.schema import ExecToolConfig
+from orchestration.state import phase_completion_ready
 from runtime.providers.base import LLMProvider
 
 
@@ -261,6 +262,14 @@ class SubagentManager:
 
             if final_result is None:
                 final_result = "Task completed but no final response was generated."
+
+            if phase and not phase_completion_ready(self.workspace / "hackathon", phase):
+                error_msg = (
+                    f"Phase '{phase}' finished without producing its required completion artifacts."
+                )
+                logger.warning("Subagent [{}] phase artifact check failed: {}", task_id, error_msg)
+                await self._announce_result(task_id, label, task, error_msg, origin, "error")
+                return
 
             logger.info("Subagent [{}] completed successfully", task_id)
             await self._announce_result(task_id, label, task, final_result, origin, "ok")

@@ -6,6 +6,7 @@ import atexit
 import asyncio
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -56,6 +57,7 @@ class ACPProvider(LLMProvider):
     _MAX_CMD_WRAPPER_PROMPT_BYTES = 6_000 if sys.platform == "win32" else 100_000
     _CMD_TOO_LONG_HINTS = ("too long", "trop long", "zu lang", "demasiado larg", "e2big")
     _RECONNECT_ERRORS = ("agent needs reconnect", "session not found", "Query closed")
+    _SPAWN_RETRY_HINT = "failed to spawn agent command"
     _MAX_RECONNECT_ATTEMPTS = 2
 
     def __init__(self, config: ACPConfig, default_model: str = "acp/claude"):
@@ -144,9 +146,8 @@ class ACPProvider(LLMProvider):
         if not acpx:
             return
         await asyncio.to_thread(
-            subprocess.run,
+            self._run_sync_process,
             [acpx, "--ttl", "0", "--cwd", self._abs_cwd(), self.config.agent, "sessions", "close", self.config.session_name],
-            capture_output=True,
             timeout=15,
         )
         self._session_ready = False
@@ -179,6 +180,48 @@ class ACPProvider(LLMProvider):
         self._acpx = _find_acpx()
         return self._acpx
 
+    @staticmethod
+    def _shell_binary() -> str | None:
+        shell = os.environ.get("SHELL")
+        if shell and os.path.isfile(shell):
+            return shell
+        return shutil.which("zsh") or shutil.which("bash")
+
+    @classmethod
+    def _should_retry_via_shell(cls, text: str | None) -> bool:
+        return cls._SPAWN_RETRY_HINT in (text or "").lower()
+
+    @classmethod
+    def _wrap_with_shell(cls, cmd: list[str]) -> list[str] | None:
+        shell = cls._shell_binary()
+        if not shell:
+            return None
+        return [shell, "-lc", " ".join(shlex.quote(part) for part in cmd)]
+
+    @classmethod
+    def _run_sync_process(cls, cmd: list[str], *, timeout: int) -> subprocess.CompletedProcess[str]:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=timeout,
+        )
+        retry_cmd = cls._wrap_with_shell(cmd)
+        if result.returncode == 0 or retry_cmd is None:
+            return result
+        if not cls._should_retry_via_shell(result.stderr) and not cls._should_retry_via_shell(result.stdout):
+            return result
+        return subprocess.run(
+            retry_cmd,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=timeout,
+        )
+
     def _abs_cwd(self) -> str:
         return str(Path(self.config.cwd).expanduser().resolve())
 
@@ -191,12 +234,8 @@ class ACPProvider(LLMProvider):
     def _set_session_model_sync(self, acpx: str) -> None:
         if not self.config.model_id:
             return
-        result = subprocess.run(
+        result = self._run_sync_process(
             [acpx, "--ttl", "0", "--cwd", self._abs_cwd(), self.config.agent, "set", "-s", self.config.session_name, "model", self.config.model_id],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
             timeout=30,
         )
         if result.returncode != 0:
@@ -220,23 +259,15 @@ class ACPProvider(LLMProvider):
         if not acpx:
             raise RuntimeError("acpx not found")
 
-        result = subprocess.run(
+        result = self._run_sync_process(
             self._acpx_preamble(acpx)
             + ["--ttl", "0", "--cwd", self._abs_cwd(), self.config.agent, "sessions", "ensure", "--name", self.config.session_name],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
             timeout=30,
         )
         if result.returncode != 0:
-            result = subprocess.run(
+            result = self._run_sync_process(
                 self._acpx_preamble(acpx)
                 + ["--ttl", "0", "--cwd", self._abs_cwd(), self.config.agent, "sessions", "new", "--name", self.config.session_name],
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
                 timeout=30,
             )
             if result.returncode != 0:
@@ -331,51 +362,60 @@ class ACPProvider(LLMProvider):
         *,
         on_output: Callable[[str], Awaitable[None]] | None = None,
     ) -> subprocess.CompletedProcess[str]:
-        process = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-
-        stdout_chunks: list[str] = []
-        stderr_chunks: list[str] = []
-
-        async def _pump(
-            stream: asyncio.StreamReader | None,
-            collector: list[str],
-            *,
-            source: str,
-        ) -> None:
-            if stream is None:
-                return
-            while True:
-                chunk = await stream.readline()
-                if not chunk:
-                    break
-                text = chunk.decode("utf-8", errors="replace")
-                collector.append(text)
-                await self._emit_process_output(text, source=source, on_output=on_output)
-
-        stdout_task = asyncio.create_task(_pump(process.stdout, stdout_chunks, source="stdout"))
-        stderr_task = asyncio.create_task(_pump(process.stderr, stderr_chunks, source="stderr"))
-
-        try:
-            await asyncio.wait_for(
-                asyncio.gather(process.wait(), stdout_task, stderr_task),
-                timeout=self.config.timeout_sec,
+        async def _run_once(run_cmd: list[str]) -> subprocess.CompletedProcess[str]:
+            process = await asyncio.create_subprocess_exec(
+                *run_cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
             )
-        except asyncio.TimeoutError as exc:
-            process.kill()
-            await asyncio.gather(stdout_task, stderr_task, return_exceptions=True)
-            await process.wait()
-            raise RuntimeError(f"ACP prompt timed out after {self.config.timeout_sec}s") from exc
 
-        return subprocess.CompletedProcess(
-            args=cmd,
-            returncode=process.returncode,
-            stdout="".join(stdout_chunks),
-            stderr="".join(stderr_chunks),
-        )
+            stdout_chunks: list[str] = []
+            stderr_chunks: list[str] = []
+
+            async def _pump(
+                stream: asyncio.StreamReader | None,
+                collector: list[str],
+                *,
+                source: str,
+            ) -> None:
+                if stream is None:
+                    return
+                while True:
+                    chunk = await stream.readline()
+                    if not chunk:
+                        break
+                    text = chunk.decode("utf-8", errors="replace")
+                    collector.append(text)
+                    await self._emit_process_output(text, source=source, on_output=on_output)
+
+            stdout_task = asyncio.create_task(_pump(process.stdout, stdout_chunks, source="stdout"))
+            stderr_task = asyncio.create_task(_pump(process.stderr, stderr_chunks, source="stderr"))
+
+            try:
+                await asyncio.wait_for(
+                    asyncio.gather(process.wait(), stdout_task, stderr_task),
+                    timeout=self.config.timeout_sec,
+                )
+            except asyncio.TimeoutError as exc:
+                process.kill()
+                await asyncio.gather(stdout_task, stderr_task, return_exceptions=True)
+                await process.wait()
+                raise RuntimeError(f"ACP prompt timed out after {self.config.timeout_sec}s") from exc
+
+            return subprocess.CompletedProcess(
+                args=run_cmd,
+                returncode=process.returncode,
+                stdout="".join(stdout_chunks),
+                stderr="".join(stderr_chunks),
+            )
+
+        result = await _run_once(cmd)
+        retry_cmd = self._wrap_with_shell(cmd)
+        if result.returncode == 0 or retry_cmd is None:
+            return result
+        if not self._should_retry_via_shell(result.stderr) and not self._should_retry_via_shell(result.stdout):
+            return result
+        return await _run_once(retry_cmd)
 
     async def _send_prompt_cli(
         self,

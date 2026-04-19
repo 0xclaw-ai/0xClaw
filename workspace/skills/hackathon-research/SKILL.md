@@ -8,7 +8,7 @@ metadata: {"openclaw": {"always": false}}
 
 ## Purpose
 Compile a complete intelligence report on the hackathon using known URLs and workspace context.
-Do NOT use web_search (may be unavailable). Use web_fetch on the specific URLs below.
+Use web_fetch on the specific URLs below.
 
 ## When to Use
 When orchestrator needs to understand the hackathon before ideation begins.
@@ -26,19 +26,16 @@ Step 1 — Load existing workspace context (do this first):
   read_file("SOUL.md")
 
 Step 2 — Fetch the hackathon pages using web_fetch:
-  web_fetch("https://dorahacks.io/hackathon/1985/detail")
-  web_fetch("https://luma.com/54b06cos")
+  web_fetch("https://links.01")
+  web_fetch("https://links.01")
 
-Step 3 — Research key platform/API docs using web_fetch:
-  web_fetch("https://docs.flock.io/flock-products/api-platform/getting-started")
-
-Step 4 — Synthesize everything into context.json.
+Step 3 — Synthesize everything into context.json.
   Use this exact schema:
 
 {
   "hackathon": {
-    "name": "UK AI Agent Hackathon EP4 x OpenClaw",
-    "url": "https://dorahacks.io/hackathon/1985",
+    "name": "Agent Hackathon",
+    "url": "https://links.01",
     "submission_deadline": "2026-03-07T23:59:00",
     "demo_day": "2026-03-07",
     "format": "hybrid",
@@ -59,21 +56,6 @@ Step 4 — Synthesize everything into context.json.
       "README with setup instructions"
     ]
   },
-  "integrations": [
-    {
-      "name": "FLock.io",
-      "tier": "gold",
-      "api_available": true,
-      "api_base_url": "https://api.flock.io/v1",
-      "auth_method": "custom_header",
-      "auth_header": "x-litellm-api-key",
-      "available_models": ["qwen3-30b-a3b-instruct-2507"],
-      "integration_complexity": 2,
-      "key_capability": "Decentralized AI model hub, OpenAI-compatible, cost-effective inference",
-      "sdk_install": null,
-      "example_use_case": "Primary LLM for all agent reasoning and code generation"
-    }
-  ],
   "strategic_notes": "The meta-story is our strongest differentiator: 0xClaw is an AI agent that autonomously competed in its own hackathon. Focus on depth of FLock integration and a compelling live demo.",
   "recommended_integration_priority": ["FLock.io"],
   "quick_wins": [

@@ -22,13 +22,36 @@ The generated project (Layer 2) is created fresh per hackathon and lives at
 ```bash
 conda activate 0xclaw          # Python 3.11, all deps installed
 cp .env.example .env           # first time only; fill in real API keys
+pip install -e .               # runtime deps only
+pip install -e .[dev]          # includes ruff linter
 ./scripts/verify_setup.sh      # confirms runtime import + workspace + API keys
 0xclaw                         # canonical runtime entrypoint
 0xclaw --logs                  # launch with loguru output visible
+0xclaw gateway                 # start Telegram/WhatsApp channel listeners
 ```
 
 `./scripts/start.sh` is an optional wrapper that activates conda and loads `.env` before running `0xclaw`.
 `./scripts/verify_setup.sh` is a preflight checker, not the runtime entrypoint.
+
+### Test and lint
+
+```bash
+# Run all tests
+python -m unittest discover -s tests -p "test_*.py" -v
+
+# Run a single test file
+python -m unittest tests.test_router -v
+
+# Run a single test method
+python -m unittest tests.test_router.KeywordMatchTests.test_exact_english_keyword_per_phase -v
+
+# Lint
+ruff check tests
+```
+
+Tests use Python `unittest` (not pytest). Each test file adds `0xclaw/` to `sys.path` and imports from `orchestration.*` directly.
+
+CI runs on push/PR to master: `ruff check tests` + `python -m unittest discover` on Python 3.11 and 3.12.
 
 ### Required `.env` keys
 
