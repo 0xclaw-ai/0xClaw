@@ -6,7 +6,6 @@ from typing import Any
 
 import httpx
 from loguru import logger
-
 from runtime.agent.tools.base import Tool
 from runtime.agent.tools.registry import ToolRegistry
 

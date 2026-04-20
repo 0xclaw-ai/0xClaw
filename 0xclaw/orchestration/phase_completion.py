@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-
 PHASE_COMPLETION_MARKERS: dict[str, str] = {
     "coding": "coding.done.json",
 }

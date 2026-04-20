@@ -5,37 +5,27 @@ import asyncio
 import json
 import os
 import re
+import shutil
 import signal
 import subprocess
-import shutil
 import sys
 import time
 from dataclasses import dataclass
-from pathlib import Path
 from itertools import count
+from pathlib import Path
 
-from loguru import logger
 from dotenv import load_dotenv
+from loguru import logger
+from rich import box as rich_box
 from rich.console import Console
 from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
-from rich import box as rich_box
 
 # ── internal deps ──────────────────────────────────────────────────────────────
 ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(Path(__file__).parent))  # makes `from runtime.xxx` work when run directly
-
-from runtime.agent.loop import AgentLoop
-from runtime.bus.events import InboundMessage
-from runtime.bus.queue import MessageBus
-from runtime.config.schema import Config
-from runtime.cron.service import CronService
-from runtime.providers.acp_provider import ACPProvider
-from runtime.providers.litellm_provider import LiteLLMProvider
-from runtime.providers.custom_provider import CustomProvider
-from runtime.session.manager import SessionManager
 
 from cli_args import parse_gateway_args, parse_whatsapp_args
 from orchestration.contracts import Envelope
@@ -44,8 +34,10 @@ from orchestration.phase_completion import (
     clear_marker,
     detect_failure_reason,
     marker_path,
-    output_exists as phase_output_exists,
     write_marker,
+)
+from orchestration.phase_completion import (
+    output_exists as phase_output_exists,
 )
 from orchestration.router import SkillRouter, keyword_matches
 from orchestration.session_control import SessionControl
@@ -57,6 +49,15 @@ from orchestration.state import (
     reconcile_pipeline_state,
 )
 from orchestration.write_guard import build_phase_write_guard, install_phase_write_guards
+from runtime.agent.loop import AgentLoop
+from runtime.bus.events import InboundMessage
+from runtime.bus.queue import MessageBus
+from runtime.config.schema import Config
+from runtime.cron.service import CronService
+from runtime.providers.acp_provider import ACPProvider
+from runtime.providers.custom_provider import CustomProvider
+from runtime.providers.litellm_provider import LiteLLMProvider
+from runtime.session.manager import SessionManager
 
 # ── globals ────────────────────────────────────────────────────────────────────
 console = Console()
@@ -196,13 +197,13 @@ def _print_banner(provider: str, model: str) -> None:
             expand=False,
         )
     )
-    _PROVIDER_DISPLAY = {
+    _provider_display = {
         "acp": "ACP/Claude Code",
         "flock": "FLock.io", "zhipu": "Z.ai", "openrouter": "OpenRouter",
         "anthropic": "Anthropic", "openai": "OpenAI", "deepseek": "DeepSeek",
         "gemini": "Gemini", "groq": "Groq",
     }
-    display_provider = _PROVIDER_DISPLAY.get(provider, provider.title())
+    display_provider = _provider_display.get(provider, provider.title())
     console.print(
         f"  [dim]Provider:[/dim] [#fbbf24]{display_provider}[/#fbbf24]"
         f"  [dim]  Model:[/dim] [#fbbf24]{model}[/#fbbf24]"
@@ -322,7 +323,7 @@ def _show_help() -> None:
 
 
 def _show_pipeline_status(state_store: PipelineStateStore) -> None:
-    STATUS_STYLE = {
+    status_style = {
         "done":      ("[green]✓[/green]",        "done",      "green"),
         "complete":  ("[green]✓[/green]",        "done",      "green"),
         "running":   ("[#7c3aed]●[/#7c3aed]", "running",   "#7c3aed"),
@@ -349,7 +350,7 @@ def _show_pipeline_status(state_store: PipelineStateStore) -> None:
     for i, phase in enumerate(PHASE_OUTPUTS, 1):
         row = rows.get(phase, {"status": "pending"})
         status = row.get("status", "pending")
-        icon, label, _ = STATUS_STYLE.get(status, STATUS_STYLE["pending"])
+        icon, label, _ = status_style.get(status, status_style["pending"])
         t.add_row(str(i), phase, icon, f"[{_[2]}]{label}[/{_[2]}]")
 
     console.print(
@@ -499,7 +500,7 @@ def _finalize_phase_run(
 
 def _make_tracking_provider(config: Config, counter: TokenCounter):
     """Return a provider that intercepts every LLM response to count tokens."""
-    from runtime.providers.base import LLMProvider, LLMResponse
+    from runtime.providers.base import LLMProvider
 
     inner = _make_provider(config)
 
@@ -737,9 +738,9 @@ def _reset_workspace_runtime_outputs() -> list[str]:
 async def run_interactive(config: Config) -> None:
     from prompt_toolkit import PromptSession
     from prompt_toolkit.application import get_app
+    from prompt_toolkit.completion import Completer, Completion
     from prompt_toolkit.formatted_text import HTML
     from prompt_toolkit.history import FileHistory
-    from prompt_toolkit.completion import Completer, Completion
     from prompt_toolkit.lexers import Lexer
     from prompt_toolkit.styles import Style
 

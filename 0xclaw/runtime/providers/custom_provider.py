@@ -6,7 +6,6 @@ from typing import Any
 
 import json_repair
 from openai import AsyncOpenAI
-
 from runtime.providers.base import LLMProvider, LLMResponse, ToolCallRequest
 
 

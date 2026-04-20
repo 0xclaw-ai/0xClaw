@@ -6,14 +6,13 @@ import asyncio
 import re
 
 from loguru import logger
-from telegram import BotCommand, ReplyParameters, Update
-from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
-from telegram.request import HTTPXRequest
-
 from runtime.bus.events import OutboundMessage
 from runtime.bus.queue import MessageBus
 from runtime.channels.base import BaseChannel
 from runtime.config.schema import TelegramConfig
+from telegram import BotCommand, ReplyParameters, Update
+from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
+from telegram.request import HTTPXRequest
 
 
 def _markdown_to_telegram_html(text: str) -> str:

@@ -15,7 +15,6 @@ from email.utils import parseaddr
 from typing import Any
 
 from loguru import logger
-
 from runtime.bus.events import OutboundMessage
 from runtime.bus.queue import MessageBus
 from runtime.channels.base import BaseChannel

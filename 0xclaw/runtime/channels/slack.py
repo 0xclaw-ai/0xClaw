@@ -2,19 +2,17 @@
 
 import asyncio
 import re
-from typing import Any
 
 from loguru import logger
+from runtime.bus.events import OutboundMessage
+from runtime.bus.queue import MessageBus
+from runtime.channels.base import BaseChannel
+from runtime.config.schema import SlackConfig
 from slack_sdk.socket_mode.request import SocketModeRequest
 from slack_sdk.socket_mode.response import SocketModeResponse
 from slack_sdk.socket_mode.websockets import SocketModeClient
 from slack_sdk.web.async_client import AsyncWebClient
 from slackify_markdown import slackify_markdown
-
-from runtime.bus.events import OutboundMessage
-from runtime.bus.queue import MessageBus
-from runtime.channels.base import BaseChannel
-from runtime.config.schema import SlackConfig
 
 
 class SlackChannel(BaseChannel):

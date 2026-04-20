@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 
 import typer
+from nanobot import __logo__, __version__
 from prompt_toolkit import PromptSession
 from prompt_toolkit.formatted_text import HTML
 from prompt_toolkit.history import FileHistory
@@ -16,8 +17,6 @@ from rich.console import Console
 from rich.markdown import Markdown
 from rich.table import Table
 from rich.text import Text
-
-from nanobot import __logo__, __version__
 from runtime.config.schema import Config
 from runtime.utils.helpers import sync_workspace_templates
 
@@ -441,7 +440,6 @@ def agent(
 ):
     """Interact with the agent directly."""
     from loguru import logger
-
     from runtime.agent.loop import AgentLoop
     from runtime.bus.queue import MessageBus
     from runtime.config.loader import get_data_dir, load_config
@@ -947,7 +945,6 @@ def cron_run(
 ):
     """Manually run a job."""
     from loguru import logger
-
     from runtime.agent.loop import AgentLoop
     from runtime.bus.queue import MessageBus
     from runtime.config.loader import get_data_dir, load_config

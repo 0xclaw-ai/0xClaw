@@ -4,7 +4,6 @@ from abc import ABC, abstractmethod
 from typing import Any
 
 from loguru import logger
-
 from runtime.bus.events import InboundMessage, OutboundMessage
 from runtime.bus.queue import MessageBus
 
