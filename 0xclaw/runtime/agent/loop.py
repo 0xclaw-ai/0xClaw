@@ -11,7 +11,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Awaitable, Callable
 
 from loguru import logger
-
 from runtime.agent.coding_executor import ClaudeCodeCodingExecutor
 from runtime.agent.context import ContextBuilder
 from runtime.agent.memory import MemoryStore

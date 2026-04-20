@@ -11,7 +11,6 @@ from .state import (
     reconcile_pipeline_state,
 )
 
-
 PHASE_TO_COMMAND = {
     "research": "run hackathon research",
     "idea": "generate ideas",

@@ -9,7 +9,6 @@ from urllib.parse import urlparse
 
 import httpx
 from loguru import logger
-
 from runtime.agent.tools.base import Tool
 
 # Shared constants
