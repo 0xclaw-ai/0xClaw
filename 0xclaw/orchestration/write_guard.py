@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Callable
 
-from .state import OrchestratorStateMachine, PROTECTED_PIPELINE_PATHS
+from .state import PROTECTED_PIPELINE_PATHS, OrchestratorStateMachine
 
 WriteGuard = Callable[[str], str | None]
 PhaseGetter = Callable[[], str | None]

@@ -5,7 +5,6 @@ from collections import deque
 from typing import TYPE_CHECKING
 
 from loguru import logger
-
 from runtime.bus.events import OutboundMessage
 from runtime.bus.queue import MessageBus
 from runtime.channels.base import BaseChannel

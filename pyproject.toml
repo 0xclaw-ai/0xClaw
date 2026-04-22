@@ -49,7 +49,21 @@ target-version = "py311"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "W"]
-ignore = ["E501"]
+# E501: line length managed by formatter
+# N999: package dir "0xclaw" starts with a digit — valid intentional name, not fixable
+ignore = ["E501", "N999"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["E402", "I001"]
+# sys.path.insert before runtime imports is intentional (resolves 0x hex-literal import)
+"0xclaw/main.py" = ["E402"]
+# Runtime engine — naming conventions reflect upstream API surfaces, not our code
+"0xclaw/runtime/agent/tools/web.py" = ["N803", "E701"]
+"0xclaw/runtime/agent/tools/registry.py" = ["N806"]
+"0xclaw/runtime/channels/dingtalk.py" = ["E701"]
+"0xclaw/runtime/channels/qq.py" = ["N806"]
+"0xclaw/runtime/channels/matrix.py" = ["F401"]
+"0xclaw/runtime/providers/base.py" = ["W293"]
+"0xclaw/runtime/providers/litellm_provider.py" = ["W293"]
+"0xclaw/runtime/providers/openai_codex_provider.py" = ["E741"]
+"0xclaw/runtime/cron/service.py" = ["F841"]
