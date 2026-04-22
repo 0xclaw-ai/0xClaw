@@ -7,7 +7,6 @@ from pathlib import Path
 from typing import Any, Callable
 
 from loguru import logger
-
 from runtime.agent.subagent_backends import (
     SubagentBackendDecision,
     SubagentTaskContext,
@@ -18,9 +17,8 @@ from runtime.agent.tools.registry import ToolRegistry
 from runtime.agent.tools.shell import ExecTool
 from runtime.agent.tools.web import WebFetchTool, WebSearchTool
 from runtime.bus.events import InboundMessage, OutboundMessage
-from runtime.config.schema import SubagentsConfig
 from runtime.bus.queue import MessageBus
-from runtime.config.schema import ExecToolConfig
+from runtime.config.schema import ExecToolConfig, SubagentsConfig
 from orchestration.state import phase_completion_ready
 from runtime.providers.base import LLMProvider
 
@@ -179,7 +177,7 @@ class SubagentManager:
             tools.register(WebSearchTool(api_key=self.brave_api_key, proxy=self.web_proxy))
             tools.register(WebFetchTool(proxy=self.web_proxy))
             self._apply_write_guards(tools)
-            
+
             system_prompt = self._build_subagent_prompt()
             messages: list[dict[str, Any]] = [
                 {"role": "system", "content": system_prompt},
@@ -328,7 +326,7 @@ Summarize this naturally for the user. Keep it brief (1-2 sentences). Do not men
                 metadata={"_progress": True, "request_id": origin.get("request_id")},
             )
         )
-    
+
     def _build_subagent_prompt(self) -> str:
         """Build a focused system prompt for the subagent."""
         from runtime.agent.context import ContextBuilder
@@ -350,7 +348,7 @@ Stay focused on the assigned task. Your final response will be reported back to 
             parts.append(f"## Skills\n\nRead SKILL.md with read_file to use a skill.\n\n{skills_summary}")
 
         return "\n\n".join(parts)
-    
+
     async def cancel_by_session(self, session_key: str) -> int:
         """Cancel all subagents for the given session. Returns count cancelled."""
         tasks = [self._running_tasks[tid] for tid in self._session_tasks.get(session_key, [])
