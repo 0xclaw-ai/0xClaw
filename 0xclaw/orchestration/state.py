@@ -42,6 +42,7 @@ PHASE_PRIMARY_OUTPUTS: dict[str, str] = {
     "doc": "submission/README.md",
 }
 
+# Cleanup list for /redo and reset flows. This no longer defines phase completion.
 PHASE_COMPLETION_ARTIFACTS: dict[str, tuple[str, ...]] = {
     "research": ("context.json", "research_summary.md"),
     "idea": ("ideas.json",),
@@ -151,28 +152,25 @@ class PipelineStateStore:
         return state
 
 
-def phase_completion_paths(hackathon_dir: Path, phase: str) -> tuple[Path, ...]:
-    """Return the artifact paths that define phase completion."""
-    return tuple(hackathon_dir / rel for rel in PHASE_COMPLETION_ARTIFACTS.get(phase, ()))
-
-
 def phase_completion_ready(hackathon_dir: Path, phase: str) -> bool:
-    """Return True when the phase's required completion artifacts exist."""
+    """Return True when the phase's primary output exists."""
+    rel = PHASE_PRIMARY_OUTPUTS.get(phase)
+    if rel is None:
+        return False
+    output = hackathon_dir / rel
     if phase == "coding":
-        output = hackathon_dir / PHASE_PRIMARY_OUTPUTS["coding"]
         return phase_output_is_complete("coding", hackathon_dir=hackathon_dir, phase_output=output)
-    paths = phase_completion_paths(hackathon_dir, phase)
-    return bool(paths) and all(output_exists(path) for path in paths)
+    return output_exists(output)
 
 
 def reconcile_pipeline_state(store: PipelineStateStore, *, persist: bool = True) -> dict:
     """Reconcile pipeline_state.json against actual hackathon artifacts.
 
-    The highest phase with completion artifacts becomes the effective checkpoint,
+    The highest phase with a primary output becomes the effective checkpoint,
     and all earlier phases are treated as complete to avoid impossible gaps like
     planning=done with selection=pending.
 
-    If no completion artifacts exist at all, stale completed/running state is
+    If no primary outputs exist at all, stale completed/running state is
     reset back to the empty-session baseline.
     """
     state = store.load()

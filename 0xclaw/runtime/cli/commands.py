@@ -488,7 +488,13 @@ def agent(
         # Animated spinner is safe to use with prompt_toolkit input handling
         return console.status("[dim]nanobot is thinking...[/dim]", spinner="dots")
 
-    async def _cli_progress(content: str, *, tool_hint: bool = False) -> None:
+    async def _cli_progress(
+        content: str,
+        *,
+        tool_hint: bool = False,
+        background_handoff: bool = False,
+    ) -> None:
+        del background_handoff
         ch = agent_loop.channels_config
         if ch and tool_hint and not ch.send_tool_hints:
             return

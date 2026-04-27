@@ -316,6 +316,8 @@ class AgentLoop:
                         args_str = json.dumps(tool_call.arguments, ensure_ascii=False)
                         logger.info("Tool call: {}({})", tool_call.name, args_str[:200])
                         result = await self.tools.execute(tool_call.name, tool_call.arguments)
+                        if on_progress and tool_call.name == "spawn" and not str(result).startswith("Error:"):
+                            await on_progress(result, background_handoff=True)
                         messages = self.context.add_tool_result(
                             messages, tool_call.id, tool_call.name, result
                         )
@@ -577,10 +579,16 @@ class AgentLoop:
             channel=msg.channel, chat_id=msg.chat_id,
         )
 
-        async def _bus_progress(content: str, *, tool_hint: bool = False) -> None:
+        async def _bus_progress(
+            content: str,
+            *,
+            tool_hint: bool = False,
+            background_handoff: bool = False,
+        ) -> None:
             meta = dict(msg.metadata or {})
             meta["_progress"] = True
             meta["_tool_hint"] = tool_hint
+            meta["_background_handoff"] = background_handoff
             await self.bus.publish_outbound(OutboundMessage(
                 channel=msg.channel, chat_id=msg.chat_id, content=content, metadata=meta,
             ))

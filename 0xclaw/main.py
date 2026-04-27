@@ -902,6 +902,7 @@ async def run_interactive(config: Config) -> None:
     request_counter = count(1)
     active_request_id: str | None = None
     background_request_id: str | None = None
+    background_deadline: float | None = None
 
     # ── Ctrl+C handling — never exits, only interrupts the current task ────────
     _processing = [False]   # mutable so the signal handler closure can read it
@@ -929,7 +930,7 @@ async def run_interactive(config: Config) -> None:
 
     async def _consume():
         """Drain the outbound bus. Releases prompt as soon as agent replies."""
-        nonlocal active_request_id, background_request_id
+        nonlocal active_request_id, background_request_id, background_deadline, bg_phase
         while True:
             try:
                 msg = await asyncio.wait_for(bus.consume_outbound(), timeout=1.0)
@@ -961,6 +962,22 @@ async def run_interactive(config: Config) -> None:
                     if metadata.get("_progress") and msg.content:
                         console.print(f"  [dim]↳ {msg.content}[/dim]")
                     elif msg.content:
+                        subagent_phase = metadata.get("_phase")
+                        subagent_status = metadata.get("_subagent_status")
+                        if scope == "background" and subagent_phase == bg_phase and subagent_status == "ok":
+                            state_machine.checkpoint(subagent_phase, "done")
+                            bg_phase = None
+                            background_request_id = None
+                            background_deadline = None
+                        elif scope == "background" and subagent_phase == bg_phase and subagent_status == "error":
+                            state_machine.checkpoint(
+                                subagent_phase,
+                                "failed",
+                                last_error=metadata.get("_subagent_error") or "Background task reported failure",
+                            )
+                            bg_phase = None
+                            background_request_id = None
+                            background_deadline = None
                         console.print()
                         console.print("[bold #fbbf24]🦀  0xClaw[/bold #fbbf24]")
                         console.print(Markdown(msg.content))
@@ -969,7 +986,7 @@ async def run_interactive(config: Config) -> None:
                             background_request_id = None
                     continue
                 if metadata.get("_progress"):
-                    if _is_background_handoff_progress(msg.content or ""):
+                    if metadata.get("_background_handoff") or _is_background_handoff_progress(msg.content or ""):
                         turn_saw_background_handoff[0] = True
                     console.print(f"  [dim]↳ {msg.content}[/dim]")
                 elif not turn_done.is_set():
@@ -995,7 +1012,7 @@ async def run_interactive(config: Config) -> None:
 
     async def _monitor_background() -> None:
         """Poll for background phase output every 4 s; notify user on completion."""
-        nonlocal bg_phase, background_request_id
+        nonlocal bg_phase, background_request_id, background_deadline
         while True:
             await asyncio.sleep(4)
             if not bg_phase:
@@ -1004,9 +1021,25 @@ async def run_interactive(config: Config) -> None:
                 state_machine.checkpoint(bg_phase, "done")
                 finished = bg_phase
                 bg_phase = None
+                background_request_id = None
+                background_deadline = None
                 console.print(
                     f"\n[bold green]✓[/bold green]  Phase [#7c3aed]{finished}[/#7c3aed] complete"
                     " — type [bold #fbbf24]/resume[/bold #fbbf24] to continue.\n"
+                )
+                continue
+            if background_deadline is not None and time.time() > background_deadline:
+                state_machine.checkpoint(
+                    bg_phase,
+                    "failed",
+                    last_error="Timed out waiting for background phase completion",
+                )
+                failed_phase = bg_phase
+                bg_phase = None
+                background_request_id = None
+                background_deadline = None
+                console.print(
+                    f"\n[red]Phase [#7c3aed]{failed_phase}[/#7c3aed] timed out while running in the background.[/red]\n"
                 )
 
     consume_task = asyncio.create_task(_consume())
@@ -1060,7 +1093,7 @@ async def run_interactive(config: Config) -> None:
         return result
 
     async def _confirm_stop_running_phase() -> bool:
-        nonlocal active_phase, active_trace_id, bg_phase, background_request_id
+        nonlocal active_phase, active_trace_id, bg_phase, background_request_id, background_deadline
         target_phase = active_phase or bg_phase
         if not target_phase:
             return True
@@ -1082,6 +1115,7 @@ async def run_interactive(config: Config) -> None:
             active_trace_id = None
             bg_phase = None
             background_request_id = None
+            background_deadline = None
             console.print(
                 f"[dim]Phase [#7c3aed]{target_phase}[/#7c3aed] had already completed; continuing.[/dim]"
             )
@@ -1098,6 +1132,7 @@ async def run_interactive(config: Config) -> None:
         active_trace_id = None
         bg_phase = None
         background_request_id = None
+        background_deadline = None
         if response.response:
             console.print(f"[yellow]{response.response.strip()}[/yellow]")
         else:
@@ -1246,6 +1281,7 @@ async def run_interactive(config: Config) -> None:
                         state_machine=state_machine,
                     )
                     bg_phase = active_phase if handed_off else None
+                    background_deadline = time.time() + redo_timeout if handed_off else None
                     active_phase = None
                     active_trace_id = None
                     if response.response:
@@ -1282,6 +1318,7 @@ async def run_interactive(config: Config) -> None:
                     active_trace_id = None
                     bg_phase = None
                     background_request_id = None
+                    background_deadline = None
                     console.print(f"[green]✓[/green]  {response.response.strip()}")
                     if removed:
                         console.print(f"[dim]Cleared hackathon outputs:[/dim] {len(removed)} item(s)")
@@ -1348,6 +1385,7 @@ async def run_interactive(config: Config) -> None:
                         state_machine=state_machine,
                     )
                     bg_phase = active_phase if handed_off else None
+                    background_deadline = time.time() + timeout_s if handed_off else None
                     active_phase = None
                     active_trace_id = None
                     if response.response:
@@ -1434,6 +1472,7 @@ async def run_interactive(config: Config) -> None:
                     state_machine=state_machine,
                 )
                 bg_phase = active_phase if handed_off else None
+                background_deadline = time.time() + timeout_s if handed_off else None
                 active_phase = None
                 active_trace_id = None
             else:
