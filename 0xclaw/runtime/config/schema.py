@@ -11,7 +11,11 @@ from pydantic_settings import BaseSettings
 class Base(BaseModel):
     """Base model that accepts both camelCase and snake_case keys."""
 
-    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+    model_config = ConfigDict(
+        alias_generator=to_camel,
+        populate_by_name=True,
+        protected_namespaces=(),
+    )
 
 
 class WhatsAppConfig(Base):
