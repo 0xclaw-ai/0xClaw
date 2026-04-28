@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -42,7 +43,8 @@ PHASE_PRIMARY_OUTPUTS: dict[str, str] = {
     "doc": "submission/README.md",
 }
 
-# Cleanup list for /redo and reset flows. This no longer defines phase completion.
+# Authoritative completion definition. A phase is "done" only when ALL listed
+# artifacts exist. Also reused as the cleanup list for /redo and reset flows.
 PHASE_COMPLETION_ARTIFACTS: dict[str, tuple[str, ...]] = {
     "research": ("context.json", "research_summary.md"),
     "idea": ("ideas.json",),
@@ -152,15 +154,83 @@ class PipelineStateStore:
         return state
 
 
+SEARCH_SNIPPET_WHITELIST: frozenset[str] = frozenset({
+    "hackathon.name",
+    "hackathon.prizes",
+    "hackathon.submission_deadline",
+})
+
+VALIDATION_ERRORS_FILENAME = "_validation_errors.txt"
+
+
+def validate_research_artifact(hackathon_dir: Path) -> list[str]:
+    """Content-level checks on hackathon/context.json.
+
+    Returns a list of human-readable error strings; empty list means valid.
+    Currently enforces the search_snippet whitelist — a sources[] entry with
+    type="search_snippet" may only back fields in SEARCH_SNIPPET_WHITELIST.
+    Anywhere else (sponsors, starters, judging_criteria, ...) it's a hard
+    violation that must be caught here because the LLM ignores the rule
+    when it's only stated in the SKILL prompt.
+    """
+    ctx_path = hackathon_dir / "context.json"
+    if not ctx_path.exists():
+        return []  # Missing-file check belongs to phase_completion_ready, not here.
+    try:
+        ctx = json.loads(ctx_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        return [f"context.json unreadable: {exc}"]
+    errors: list[str] = []
+    sources = ctx.get("sources", []) if isinstance(ctx, dict) else []
+    for idx, src in enumerate(sources):
+        if not isinstance(src, dict):
+            continue
+        if src.get("type") != "search_snippet":
+            continue
+        used_for_raw = src.get("used_for", "") or ""
+        fields = [f.strip() for f in str(used_for_raw).split(",") if f.strip()]
+        for field in fields:
+            base = field.split(":", 1)[0]  # strip ":Name" suffix forms
+            base_no_index = re.sub(r"\.\d+$", "", base)  # strip ".0" indexers
+            if base_no_index not in SEARCH_SNIPPET_WHITELIST:
+                errors.append(
+                    f"sources[{idx}] type=search_snippet illegal for field '{field}' "
+                    f"(url={src.get('url', '?')}). Whitelist: "
+                    f"{sorted(SEARCH_SNIPPET_WHITELIST)}."
+                )
+    return errors
+
+
+def _write_validation_errors(hackathon_dir: Path, errors: list[str]) -> None:
+    path = hackathon_dir / VALIDATION_ERRORS_FILENAME
+    if not errors:
+        path.unlink(missing_ok=True)
+        return
+    path.write_text(
+        "Phase completion blocked by validation errors:\n\n"
+        + "\n".join(f"- {e}" for e in errors)
+        + "\n",
+        encoding="utf-8",
+    )
+
+
 def phase_completion_ready(hackathon_dir: Path, phase: str) -> bool:
-    """Return True when the phase's primary output exists."""
-    rel = PHASE_PRIMARY_OUTPUTS.get(phase)
-    if rel is None:
+    """Return True when ALL of the phase's required completion artifacts exist
+    AND content-level validation passes."""
+    artifacts = PHASE_COMPLETION_ARTIFACTS.get(phase, ())
+    if not artifacts:
         return False
-    output = hackathon_dir / rel
     if phase == "coding":
-        return phase_output_is_complete("coding", hackathon_dir=hackathon_dir, phase_output=output)
-    return output_exists(output)
+        primary = hackathon_dir / PHASE_PRIMARY_OUTPUTS[phase]
+        return phase_output_is_complete("coding", hackathon_dir=hackathon_dir, phase_output=primary)
+    if not all(output_exists(hackathon_dir / a) for a in artifacts):
+        return False
+    if phase == "research":
+        errors = validate_research_artifact(hackathon_dir)
+        _write_validation_errors(hackathon_dir, errors)
+        if errors:
+            return False
+    return True
 
 
 def reconcile_pipeline_state(store: PipelineStateStore, *, persist: bool = True) -> dict:
