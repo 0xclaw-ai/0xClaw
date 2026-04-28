@@ -29,6 +29,7 @@ sys.path.insert(0, str(Path(__file__).parent))  # makes `from runtime.xxx` work 
 
 from cli_args import parse_gateway_args, parse_whatsapp_args
 from orchestration.contracts import Envelope
+from orchestration.doc_explorer import expand_doc_urls
 from orchestration.model_profiles import ModelProfileResolver
 from orchestration.phase_completion import (
     clear_marker,
@@ -394,6 +395,47 @@ def _is_spawn_started_message(text: str) -> bool:
 def _is_background_handoff_progress(text: str) -> bool:
     t = (text or "").strip()
     return _is_spawn_started_message(t)
+
+
+_DOCS_PARAM_RE = re.compile(r"\bdocs=(\S+)")
+
+
+def _parse_docs_param(user_input: str) -> list[str]:
+    """Extract `docs=<u1>,<u2>` from a research command. Returns [] if absent."""
+    m = _DOCS_PARAM_RE.search(user_input)
+    if not m:
+        return []
+    return [u.strip() for u in m.group(1).split(",") if u.strip()]
+
+
+def _build_research_payload(user_input: str, phase: str) -> dict:
+    """Build the envelope payload for a research-phase command.
+
+    For `research <hackathon> docs=<u1>,<u2>` we pre-expand each doc root
+    via sitemap.xml (with link-harvest fallback) so the spawned agent
+    receives a concrete list of URLs to firecrawl_scrape rather than being
+    asked to run a multi-step shell pipeline itself.
+    """
+    payload: dict = {"user_command": user_input, "phase": phase}
+    if phase != "research":
+        return payload
+    doc_roots = _parse_docs_param(user_input)
+    if not doc_roots:
+        return payload
+    expansion = expand_doc_urls(doc_roots)
+    flat: list[str] = []
+    for urls in expansion.values():
+        flat.extend(urls)
+    seen: set[str] = set()
+    deduped = []
+    for u in flat:
+        if u not in seen:
+            seen.add(u)
+            deduped.append(u)
+    payload["doc_roots"] = doc_roots
+    payload["scrape_urls"] = deduped
+    payload["doc_expansion"] = expansion  # per-root breakdown for audit
+    return payload
 
 
 def _prepare_phase_run(phase: str) -> None:
@@ -1258,7 +1300,7 @@ async def run_interactive(config: Config) -> None:
                         phase=redo_route.phase,
                         agent_id="orchestrator",
                         trace_id=active_trace_id,
-                        payload={"user_command": redo_cmd, "phase": redo_route.phase},
+                        payload=_build_research_payload(redo_cmd, redo_route.phase),
                     )
                     _append_envelope(redo_envelope)
                     redo_message = (
@@ -1362,7 +1404,7 @@ async def run_interactive(config: Config) -> None:
                         phase=route.phase,
                         agent_id="orchestrator",
                         trace_id=active_trace_id,
-                        payload={"user_command": cmd, "phase": route.phase},
+                        payload=_build_research_payload(cmd, route.phase),
                     )
                     _append_envelope(envelope)
                     message = (
@@ -1449,7 +1491,7 @@ async def run_interactive(config: Config) -> None:
                     phase=route.phase,
                     agent_id="orchestrator",
                     trace_id=active_trace_id,
-                    payload={"user_command": user_input, "phase": route.phase},
+                    payload=_build_research_payload(user_input, route.phase),
                 )
                 _append_envelope(envelope)
                 routed_input = (

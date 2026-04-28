@@ -73,6 +73,16 @@
       "search": {
         "apiKey": "${BRAVE_API_KEY}"
       }
+    },
+    "mcp_servers": {
+      "firecrawl": {
+        "command": "npx",
+        "args": ["-y", "firecrawl-mcp"],
+        "env": {
+          "FIRECRAWL_API_KEY": "${FIRECRAWL_API_KEY}"
+        },
+        "tool_timeout": 120
+      }
     }
   },
   "gateway": {

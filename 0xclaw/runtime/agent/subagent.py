@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from loguru import logger
+from orchestration.state import phase_completion_ready
 from runtime.agent.subagent_backends import (
     SubagentBackendDecision,
     SubagentTaskContext,
@@ -19,7 +20,6 @@ from runtime.agent.tools.web import WebFetchTool, WebSearchTool
 from runtime.bus.events import InboundMessage, OutboundMessage
 from runtime.bus.queue import MessageBus
 from runtime.config.schema import ExecToolConfig, SubagentsConfig
-from orchestration.state import phase_completion_ready
 from runtime.providers.base import LLMProvider
 
 
