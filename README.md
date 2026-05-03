@@ -38,7 +38,60 @@ cp .env.example .env
 ./scripts/verify_setup.sh
 ```
 
-Then fill in `ZAI_API_KEY` or `FLOCK_API_KEY` in `.env`.
+Then fill in the API keys needed for the workflow you want to run:
+
+| Key / tool | Used for | Get it from | Required when |
+| --- | --- | --- | --- |
+| `ZAI_API_KEY` | Default Z.ai model provider and Claude-compatible coding endpoint | [Z.ai Open Platform](https://z.ai/model-api) / [Z.ai API docs](https://docs.z.ai/) | Running the default config |
+| `FLOCK_API_KEY` | Secondary model provider | [FLock Platform](https://platform.flock.io) / [FLock API docs](https://docs.flock.io/flock-products/api-platform/getting-started) | Using the FLock provider |
+| `FIRECRAWL_API_KEY` | Research-phase scraping through `firecrawl-mcp` | [Firecrawl dashboard](https://www.firecrawl.dev) / [Firecrawl docs](https://docs.firecrawl.dev/api-reference/v2-introduction) | Researching JS-heavy sponsor docs or protected pages |
+| `E2B_API_KEY` | Phase 6 cloud sandbox testing | [E2B dashboard/docs](https://e2b.dev/docs/api-key) | `subagents.testing.sandbox = "e2b"` |
+| `BRAVE_API_KEY` | Optional web search fallback | [Brave Search API](https://brave.com/search/api/) | Using the built-in Brave search tool |
+| `claude` CLI | Claude Code direct executor | [Claude Code setup docs](https://docs.anthropic.com/en/docs/claude-code/getting-started) | `subagents.coding.backend` or `subagents.testing.backend = "claude_code"` |
+
+Minimal setup flow:
+
+1. Create `.env` from `.env.example`.
+2. Add `ZAI_API_KEY` first; the default config uses Z.ai for normal inference
+   and for the Claude-compatible coding endpoint.
+3. Add `FIRECRAWL_API_KEY` before running research on sponsor/docs-heavy
+   hackathons.
+4. Add `E2B_API_KEY` before Phase 6 if sandbox testing is enabled.
+5. Add `FLOCK_API_KEY` or `BRAVE_API_KEY` only when you enable those providers
+   or tools.
+6. Install Claude Code if coding/testing is routed through Claude Code.
+
+Install the Claude Code CLI once if you use the Claude Code backend:
+
+```bash
+npm install -g @anthropic-ai/claude-code
+claude
+```
+
+Python packages are installed by `pip install -e .`; development tooling such
+as Ruff is installed by `pip install -e .[dev]`. The Firecrawl MCP server is
+started from `config.json` with `npx -y firecrawl-mcp`, so Node/npm must also
+be available when that tool is enabled.
+
+`Context7` is not required for the current research pipeline. Firecrawl can
+still be blocked by CAPTCHA/Cloudflare-style protection, especially on free
+plans; pass sponsor docs explicitly with `docs=<url1>,<url2>` so the pipeline
+can scrape the API documentation directly.
+
+External service limits to expect:
+
+- Firecrawl is used for research scraping. It may fail on sites protected by
+  CAPTCHA, Cloudflare, login walls, or aggressive anti-bot rules. When that
+  happens, provide stable sponsor/API documentation roots via `docs=...` and
+  treat the blocked hackathon page as requiring human review.
+- E2B is used for isolated Phase 6 testing. It needs `E2B_API_KEY` plus enough
+  quota, runtime, and network access for dependency installs, test commands,
+  and optional smoke servers. E2B is not a bypass for third-party API limits:
+  protected websites, private package registries, login-gated services, and
+  sponsor APIs still require their own credentials.
+- Secrets are explicit. The sandbox does not automatically inherit every local
+  credential; document any project-specific keys in the generated project's
+  `.env.example` and README so testing can reproduce the environment.
 
 For a quick sanity check after installation:
 
@@ -101,15 +154,20 @@ Trigger any phase with natural language — routing is automatic.
 </div>
 
 ```
-Some prompts for quick understand the processe:
+Useful phase prompts:
 
-research the hackathon requirements
+research <hackathon_url> docs=<sponsor_docs_url>,<sdk_docs_url>
 generate project ideas
 plan the architecture
 implement the project
 run tests
 write the documentation
 ```
+
+The research phase now uses deterministic sitemap expansion in
+`0xclaw/orchestration/doc_explorer.py`: user-provided `docs=` roots are expanded
+before the agent runs, then `workspace/skills/hackathon-research/SKILL.md`
+requires those URLs to be scraped and cited in `sources[]`.
 
 ## ⌨️ Commands
 

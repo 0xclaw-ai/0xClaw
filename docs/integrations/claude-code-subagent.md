@@ -15,7 +15,7 @@ Verify the CLI is available:
 claude --help
 ```
 
-## Enable Claude Code for Coding Only
+## Enable Claude Code for Coding and Testing
 
 In [`0xclaw/config/config.json`](../../0xclaw/config/config.json), set:
 
@@ -26,16 +26,18 @@ In [`0xclaw/config/config.json`](../../0xclaw/config/config.json), set:
       "backend": "claude_code",
       "fallbackBackend": "default_llm"
     },
+    "testing": {
+      "backend": "claude_code",
+      "fallbackBackend": "default_llm",
+      "sandbox": "e2b"
+    },
     "claudeCode": {
       "model": "",
       "cwd": "./workspace/hackathon/project",
       "timeoutSec": 1800,
       "permissionMode": "acceptEdits",
-      "seedAgents": [
-        "install-and-smoketest",
-        "package-for-submission",
-        "dependency-fixer"
-      ]
+      "baseUrl": "",
+      "authTokenEnv": ""
     }
   }
 }
@@ -47,9 +49,12 @@ In [`0xclaw/config/config.json`](../../0xclaw/config/config.json), set:
 - `cwd` — `"./workspace/hackathon/project"` — Working directory for the Claude Code session
 - `timeoutSec` — `1800` — Maximum seconds for a single phase run
 - `permissionMode` — `"acceptEdits"` — Claude Code permission mode
-- `seedAgents` — 3 default agents — Subagent names to seed under `<cwd>/.claude/agents/`
 - `baseUrl` — `""` — Optional Anthropic-compatible endpoint override
 - `authTokenEnv` — `""` — Env var name holding the bearer token for custom endpoints
+
+For Phase 6, set `subagents.testing.sandbox` to `"e2b"` and provide
+`E2B_API_KEY` to run testing in an isolated E2B sandbox. Use `"none"` to fall
+back to the host Claude Code executor.
 
 ## Verify
 
