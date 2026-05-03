@@ -20,7 +20,7 @@ from typing import Any, Awaitable, Callable
 
 from loguru import logger
 
-from runtime.agent.claude_code_executor import _PHASE_PROMPTS, CodingExecutionResult
+from runtime.agent.claude_code_executor import CodingExecutionResult, _PHASE_PROMPTS
 from runtime.config.schema import ClaudeCodeSubagentConfig, E2BConfig
 
 # Remote directory inside the E2B sandbox where we upload the project.
