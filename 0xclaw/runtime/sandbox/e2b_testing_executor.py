@@ -14,12 +14,13 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import shlex
 from pathlib import Path
 from typing import Any, Awaitable, Callable
 
 from loguru import logger
 
-from runtime.agent.claude_code_executor import CodingExecutionResult, _PHASE_PROMPTS
+from runtime.agent.claude_code_executor import _PHASE_PROMPTS, CodingExecutionResult
 from runtime.config.schema import ClaudeCodeSubagentConfig, E2BConfig
 
 # Remote directory inside the E2B sandbox where we upload the project.
@@ -172,6 +173,7 @@ class E2BTestingExecutor:
     ) -> int:
         """Walk local_dir and upload files, skipping _SKIP_DIRS entirely. Returns file count."""
         count = 0
+        self._ensure_remote_dir(sandbox, remote_dir)
         for entry in local_dir.iterdir():
             if entry.is_dir():
                 if entry.name in _SKIP_DIRS:
@@ -185,6 +187,10 @@ class E2BTestingExecutor:
                 except Exception as exc:  # noqa: BLE001
                     logger.warning("e2b: failed to upload {}: {}", entry.name, exc)
         return count
+
+    @staticmethod
+    def _ensure_remote_dir(sandbox: Any, remote_dir: str) -> None:
+        sandbox.commands.run(f"mkdir -p {shlex.quote(remote_dir)}", timeout=30)
 
     async def _run_claude(
         self,
@@ -266,7 +272,9 @@ class E2BTestingExecutor:
         try:
             data = json.loads(raw)
         except (json.JSONDecodeError, ValueError):
-            return raw[:6000]
+            data = E2BTestingExecutor._load_embedded_json(raw)
+            if data is None:
+                return raw[:6000]
 
         # Handle dict with "result" key (single-object format).
         if isinstance(data, dict):
@@ -312,6 +320,17 @@ class E2BTestingExecutor:
             return assistant_texts[-1]
 
         return raw[:6000]
+
+    @staticmethod
+    def _load_embedded_json(raw: str) -> Any | None:
+        """Parse CC JSON when diagnostics or shell output precede the payload."""
+        starts = [idx for idx in (raw.find("{"), raw.find("[")) if idx >= 0]
+        for start in sorted(starts):
+            try:
+                return json.loads(raw[start:])
+            except (json.JSONDecodeError, ValueError):
+                continue
+        return None
 
     def _download_results(self, sandbox: Any) -> None:
         """Download test_results.json from the sandbox to local workspace."""

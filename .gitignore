@@ -88,9 +88,6 @@ coverage.xml
 .pdm-python
 .pdm-build/
 CLAUDE.md
-CLAUDE.md
 package-lock.json
 package.json
-tests/test_state_machine.py
-CLAUDE.md
-tests/test_state_machine.py
+scripts/smoke_test_claude_code.py
