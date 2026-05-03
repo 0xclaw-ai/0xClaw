@@ -55,7 +55,6 @@ from runtime.bus.events import InboundMessage
 from runtime.bus.queue import MessageBus
 from runtime.config.schema import Config
 from runtime.cron.service import CronService
-from runtime.providers.acp_provider import ACPProvider
 from runtime.providers.custom_provider import CustomProvider
 from runtime.providers.litellm_provider import LiteLLMProvider
 from runtime.session.manager import SessionManager
@@ -199,7 +198,6 @@ def _print_banner(provider: str, model: str) -> None:
         )
     )
     _provider_display = {
-        "acp": "ACP/Claude Code",
         "flock": "FLock.io", "zhipu": "Z.ai", "openrouter": "OpenRouter",
         "anthropic": "Anthropic", "openai": "OpenAI", "deepseek": "DeepSeek",
         "gemini": "Gemini", "groq": "Groq",
@@ -258,14 +256,6 @@ def _load_config(*, validate_provider_key: bool = True) -> Config:
         model = config.agents.defaults.model
         provider_name = config.get_provider_name(model) or config.agents.defaults.provider
         provider_cfg = config.get_provider(model)
-        if provider_name == "acp":
-            ok, message = ACPProvider.from_config(config, default_model=model).preflight()
-            if not ok:
-                console.print("[red bold]✗ ACP provider is not ready.[/red bold]")
-                console.print(f"  [dim]{message}[/dim]")
-                console.print("  [dim]Install acpx, ensure `claude` is on PATH, and log into Claude Code first.[/dim]")
-                sys.exit(1)
-            return config
         if not provider_cfg or not (provider_cfg.api_key or "").strip():
             key_hints: dict[str, tuple[str, str]] = {
                 "flock": ("FLOCK_API_KEY", "https://platform.flock.io"),
@@ -290,8 +280,6 @@ def _make_provider(config: Config):
     provider_name = config.get_provider_name(model) or config.agents.defaults.provider
     p = config.get_provider(model)
 
-    if provider_name == "acp":
-        return ACPProvider.from_config(config, default_model=model)
     if provider_name == "custom":
         return CustomProvider(
             api_key=p.api_key if p else "no-key",
