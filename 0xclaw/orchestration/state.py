@@ -66,7 +66,9 @@ PHASE_ALLOWED_WRITE_DIRS: dict[str, tuple[str, ...]] = {
     "selection": ("hackathon/selected_idea.json", "hackathon/pipeline_state.json", "hackathon/progress.md"),
     "planning": ("hackathon/plan.md", "hackathon/tasks.json", "hackathon/pipeline_state.json", "hackathon/progress.md"),
     "coding": ("hackathon/project", "hackathon/pipeline_state.json", "hackathon/progress.md"),
-    "testing": ("hackathon/test_results.json", "hackathon/pipeline_state.json", "hackathon/progress.md"),
+    # hackathon/project is included so the fix-and-retry loop can patch requirements.txt
+    # and import statements without the write guard blocking legitimate fixes.
+    "testing": ("hackathon/test_results.json", "hackathon/project", "hackathon/pipeline_state.json", "hackathon/progress.md"),
     "doc": ("hackathon/submission", "hackathon/project/README.md", "hackathon/pipeline_state.json", "hackathon/progress.md"),
 }
 

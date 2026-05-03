@@ -68,24 +68,6 @@ class ProviderSpec:
 
 PROVIDERS: tuple[ProviderSpec, ...] = (
 
-    # === ACP local agent bridge ===========================================
-    ProviderSpec(
-        name="acp",
-        keywords=("acp", "claude-code", "claude_code_acp"),
-        env_key="",
-        display_name="ACP",
-        litellm_prefix="",
-        skip_prefixes=(),
-        env_extras=(),
-        is_gateway=False,
-        is_local=True,
-        detect_by_key_prefix="",
-        detect_by_base_keyword="",
-        default_api_base="",
-        strip_model_prefix=False,
-        model_overrides=(),
-    ),
-
     # === Custom (direct OpenAI-compatible endpoint, bypasses LiteLLM) ======
     ProviderSpec(
         name="custom",

@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Awaitable, Callable
 
 from loguru import logger
-from runtime.agent.coding_executor import ClaudeCodeCodingExecutor
+from runtime.agent.claude_code_executor import ClaudeCodeExecutor
 from runtime.agent.context import ContextBuilder
 from runtime.agent.memory import MemoryStore
 from runtime.agent.subagent import SubagentManager
@@ -241,15 +241,15 @@ class AgentLoop:
             )
             backend_provider = backend_decision.provider
             current_backend = backend_decision.actual_backend
-            if phase == "coding" and on_progress:
+            if phase and current_backend != "default_llm" and on_progress:
                 if backend_decision.fallback_reason:
                     await on_progress(
-                        f"[coding backend] requested={backend_decision.requested_backend} "
+                        f"[{phase} backend] requested={backend_decision.requested_backend} "
                         f"actual={backend_decision.actual_backend} fallback={backend_decision.fallback_reason}"
                     )
                 else:
                     await on_progress(
-                        f"[coding backend] requested={backend_decision.requested_backend} "
+                        f"[{phase} backend] requested={backend_decision.requested_backend} "
                         f"actual={backend_decision.actual_backend}"
                     )
 
@@ -266,7 +266,7 @@ class AgentLoop:
                     reasoning_effort=self.reasoning_effort,
                 )
 
-                if phase == "coding" and current_backend != "default_llm" and (
+                if current_backend != "default_llm" and (
                     response.finish_reason == "error" or not response.has_tool_calls
                 ):
                     fallback_reason = "unsupported tool-driving behavior / no executable tool calls"
@@ -278,7 +278,7 @@ class AgentLoop:
                     )
                     if on_progress:
                         await on_progress(
-                            f"[coding backend] fallback during execution: "
+                            f"[{phase or 'unknown'} backend] fallback during execution: "
                             f"{current_backend} -> default_llm ({fallback_reason})"
                         )
                     current_backend = "default_llm"
@@ -348,38 +348,66 @@ class AgentLoop:
 
         return final_content, tools_used, messages
 
-    async def _run_external_coding_phase(
+    async def _run_external_phase(
         self,
+        phase: str,
         initial_messages: list[dict],
         on_progress: Callable[..., Awaitable[None]] | None = None,
     ) -> tuple[str | None, list[str], list[dict]] | None:
-        """Execute the coding phase through Claude Code directly, with safe fallback."""
+        """Execute a phase through Claude Code directly, with safe fallback.
+
+        Returns None when the phase has no claude_code backend configured so
+        the caller can fall through to _run_agent_loop.
+        """
         if self._subagents_config is None:
             return None
-        if self._subagents_config.coding.backend != "claude_code":
+        phase_policy = getattr(self._subagents_config, phase, None)
+        if phase_policy is None or getattr(phase_policy, "backend", None) != "claude_code":
             return None
 
-        executor = ClaudeCodeCodingExecutor(
-            self._subagents_config.claude_code,
-            workspace=self.workspace,
-            default_model=self.model,
+        # Testing phase can use E2B sandbox for full isolation with internet access.
+        use_e2b = (
+            phase == "testing"
+            and getattr(phase_policy, "sandbox", "none") == "e2b"
+            and hasattr(self._subagents_config, "e2b")
         )
-        ok, message = executor.preflight()
+
+        if use_e2b:
+            from runtime.sandbox.e2b_testing_executor import E2BTestingExecutor
+
+            executor = E2BTestingExecutor(
+                self._subagents_config.claude_code,
+                self._subagents_config.e2b,
+                workspace=self.workspace,
+                default_model=self.model,
+            )
+            ok, message = E2BTestingExecutor.preflight(self._subagents_config.e2b)
+        else:
+            executor = ClaudeCodeExecutor(
+                self._subagents_config.claude_code,
+                workspace=self.workspace,
+                default_model=self.model,
+                phase=phase,
+            )
+            ok, message = executor.preflight()
         if not ok:
             if on_progress:
                 await on_progress(
-                    "[coding backend] requested=claude_code actual=default_llm "
+                    f"[{phase} backend] requested=claude_code actual=default_llm "
                     f"fallback={message}"
                 )
             return await self._run_agent_loop(
                 initial_messages,
                 on_progress=on_progress,
-                phase="coding",
+                phase=phase,
                 force_default_provider=True,
             )
 
         if on_progress:
-            await on_progress("[coding backend] requested=claude_code actual=claude_code mode=external_executor")
+            mode = "e2b_sandbox" if use_e2b else "external_executor"
+            await on_progress(
+                f"[{phase} backend] requested=claude_code actual=claude_code mode={mode}"
+            )
 
         try:
             result = await executor.execute_streaming(initial_messages, on_progress=on_progress)
@@ -388,13 +416,13 @@ class AgentLoop:
         except Exception as exc:  # noqa: BLE001
             if on_progress:
                 await on_progress(
-                    "[coding backend] fallback during execution: "
+                    f"[{phase} backend] fallback during execution: "
                     f"claude_code -> default_llm ({exc})"
                 )
             return await self._run_agent_loop(
                 initial_messages,
                 on_progress=on_progress,
-                phase="coding",
+                phase=phase,
                 force_default_provider=True,
             )
         finally:
@@ -595,8 +623,12 @@ class AgentLoop:
 
         phase = msg.metadata.get("phase")
         progress_handler = on_progress or _bus_progress
-        if phase == "coding":
-            external_result = await self._run_external_coding_phase(
+        # Phases with backend="claude_code" route through the external SDK executor.
+        # _run_external_phase returns None when the phase has no CC backend configured,
+        # so we fall through to _run_agent_loop transparently.
+        if phase in ("coding", "testing"):
+            external_result = await self._run_external_phase(
+                phase,
                 initial_messages,
                 on_progress=progress_handler,
             )

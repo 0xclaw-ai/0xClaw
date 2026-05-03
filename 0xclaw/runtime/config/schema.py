@@ -230,22 +230,9 @@ class ProviderConfig(Base):
     extra_headers: dict[str, str] | None = None  # Custom headers (e.g. APP-Code for AiHubMix)
 
 
-class ACPProviderConfig(Base):
-    """ACP-backed local agent provider configuration."""
-
-    agent: str = "claude"
-    model_id: str = "qwen3.5-plus"
-    cwd: str = "./workspace"
-    session_name: str = "0xclaw"
-    timeout_sec: int = 1800
-    acpx_command: str = ""
-    approve_all: bool = True
-
-
 class ProvidersConfig(Base):
     """Configuration for LLM providers."""
 
-    acp: ACPProviderConfig = Field(default_factory=ACPProviderConfig)
     custom: ProviderConfig = Field(default_factory=ProviderConfig)  # Any OpenAI-compatible endpoint
     flock: ProviderConfig = Field(default_factory=ProviderConfig)    # FLock.io decentralized AI hub
     anthropic: ProviderConfig = Field(default_factory=ProviderConfig)
@@ -304,15 +291,16 @@ class ExecToolConfig(Base):
 
 
 class ClaudeCodeSubagentConfig(Base):
-    """Claude Code backend configuration for subagents."""
+    """Claude Code backend configuration for subagents (via claude-agent-sdk)."""
 
-    agent: str = "claude"
-    model_id: str = "qwen3.5-plus"
-    cwd: str = "./workspace"
-    session_name: str = "0xclaw-coder"
+    model: str = ""  # SDK model alias (e.g. "sonnet", "opus"); empty = SDK default
+    cwd: str = "./workspace/hackathon/project"
     timeout_sec: int = 1800
-    acpx_command: str = ""
-    approve_all: bool = True
+    permission_mode: str = "acceptEdits"  # default | acceptEdits | bypassPermissions | plan | dontAsk | auto
+    # Optional Anthropic-compatible endpoint override (e.g. GLM's compat layer).
+    # Leave both empty to use the host `claude` CLI's default credentials.
+    base_url: str = ""              # ANTHROPIC_BASE_URL passed to the spawned CLI
+    auth_token_env: str = ""        # name of env var holding the bearer token (e.g. "ZAI_API_KEY")
 
 
 class CodingSubagentConfig(Base):
@@ -322,11 +310,29 @@ class CodingSubagentConfig(Base):
     fallback_backend: str = "default_llm"
 
 
+class TestingSubagentConfig(Base):
+    """Testing (Phase 6) subagent backend policy."""
+
+    backend: str = "default_llm"
+    fallback_backend: str = "default_llm"
+    sandbox: str = "e2b"  # "e2b" | "none"
+
+
+class E2BConfig(Base):
+    """E2B sandbox configuration."""
+
+    api_key_env: str = "E2B_API_KEY"
+    template: str = "claude"
+    timeout_sec: int = 1800
+
+
 class SubagentsConfig(Base):
     """Subagent backend configuration."""
 
     coding: CodingSubagentConfig = Field(default_factory=CodingSubagentConfig)
+    testing: TestingSubagentConfig = Field(default_factory=TestingSubagentConfig)
     claude_code: ClaudeCodeSubagentConfig = Field(default_factory=ClaudeCodeSubagentConfig)
+    e2b: E2BConfig = Field(default_factory=E2BConfig)
 
 
 class MCPServerConfig(Base):
