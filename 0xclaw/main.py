@@ -396,7 +396,7 @@ def _parse_docs_param(user_input: str) -> list[str]:
     return [u.strip() for u in m.group(1).split(",") if u.strip()]
 
 
-def _build_research_payload(user_input: str, phase: str) -> dict:
+async def _build_research_payload(user_input: str, phase: str) -> dict:
     """Build the envelope payload for a research-phase command.
 
     For `research <hackathon> docs=<u1>,<u2>` we pre-expand each doc root
@@ -410,16 +410,12 @@ def _build_research_payload(user_input: str, phase: str) -> dict:
     doc_roots = _parse_docs_param(user_input)
     if not doc_roots:
         return payload
-    expansion = expand_doc_urls(doc_roots)
+    # Run blocking HTTP fetches off the event loop to avoid freezing the REPL.
+    expansion = await asyncio.to_thread(expand_doc_urls, doc_roots)
     flat: list[str] = []
     for urls in expansion.values():
         flat.extend(urls)
-    seen: set[str] = set()
-    deduped = []
-    for u in flat:
-        if u not in seen:
-            seen.add(u)
-            deduped.append(u)
+    deduped = list(dict.fromkeys(flat))
     payload["doc_roots"] = doc_roots
     payload["scrape_urls"] = deduped
     payload["doc_expansion"] = expansion  # per-root breakdown for audit
@@ -1288,7 +1284,7 @@ async def run_interactive(config: Config) -> None:
                         phase=redo_route.phase,
                         agent_id="orchestrator",
                         trace_id=active_trace_id,
-                        payload=_build_research_payload(redo_cmd, redo_route.phase),
+                        payload=await _build_research_payload(redo_cmd, redo_route.phase),
                     )
                     _append_envelope(redo_envelope)
                     redo_message = (
@@ -1392,7 +1388,7 @@ async def run_interactive(config: Config) -> None:
                         phase=route.phase,
                         agent_id="orchestrator",
                         trace_id=active_trace_id,
-                        payload=_build_research_payload(cmd, route.phase),
+                        payload=await _build_research_payload(cmd, route.phase),
                     )
                     _append_envelope(envelope)
                     message = (
@@ -1479,7 +1475,7 @@ async def run_interactive(config: Config) -> None:
                     phase=route.phase,
                     agent_id="orchestrator",
                     trace_id=active_trace_id,
-                    payload=_build_research_payload(user_input, route.phase),
+                    payload=await _build_research_payload(user_input, route.phase),
                 )
                 _append_envelope(envelope)
                 routed_input = (

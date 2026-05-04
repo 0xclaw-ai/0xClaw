@@ -7,7 +7,6 @@ from pathlib import Path
 from typing import Any, Callable
 
 from loguru import logger
-from orchestration.state import phase_completion_ready
 from runtime.agent.subagent_backends import (
     SubagentBackendDecision,
     SubagentTaskContext,
@@ -261,6 +260,9 @@ class SubagentManager:
             if final_result is None:
                 final_result = "Task completed but no final response was generated."
 
+            from orchestration.state import (
+                phase_completion_ready,  # lazy import — orchestration does not import runtime
+            )
             if phase and not phase_completion_ready(self.workspace / "hackathon", phase):
                 error_msg = (
                     f"Phase '{phase}' finished without producing its required completion artifacts."

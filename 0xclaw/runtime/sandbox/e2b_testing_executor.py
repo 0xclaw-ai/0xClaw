@@ -19,8 +19,7 @@ from pathlib import Path
 from typing import Any, Awaitable, Callable
 
 from loguru import logger
-
-from runtime.agent.claude_code_executor import CodingExecutionResult, _PHASE_PROMPTS
+from runtime.agent.claude_code_executor import PHASE_PROMPTS, CodingExecutionResult
 from runtime.config.schema import ClaudeCodeSubagentConfig, E2BConfig
 
 # Remote directory inside the E2B sandbox where we upload the project.
@@ -47,7 +46,7 @@ def _e2b_preflight(e2b_config: E2BConfig) -> tuple[bool, str]:
 
 def _build_prompt(messages: list[dict[str, Any]]) -> str:
     """Build the testing prompt from phase instructions + user messages."""
-    parts: list[str] = list(_PHASE_PROMPTS.get("testing", _PHASE_PROMPTS["coding"]))
+    parts: list[str] = list(PHASE_PROMPTS.get("testing", PHASE_PROMPTS["coding"]))
     parts.insert(1, f"Repository workspace root: {_REMOTE_PROJECT_DIR}")
 
     user_context = "\n\n".join(

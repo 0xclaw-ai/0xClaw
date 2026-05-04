@@ -35,7 +35,7 @@ class ModelProfileResolverTests(unittest.TestCase):
         self.assertEqual(profile.model, "glm-4.5")
         self.assertEqual(profile.max_tokens, 65536)
         self.assertAlmostEqual(profile.temperature, 0.1)
-        self.assertEqual(profile.timeout_s, 600)
+        self.assertEqual(profile.timeout_s, 1800)
 
     def test_fallback_when_failed_true(self) -> None:
         resolver = ModelProfileResolver(REAL_CONFIG_PATH)

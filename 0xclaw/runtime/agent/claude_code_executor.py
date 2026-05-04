@@ -47,7 +47,7 @@ class CodingExecutionResult:
     backend: str
 
 
-_PHASE_PROMPTS: dict[str, list[str]] = {
+PHASE_PROMPTS: dict[str, list[str]] = {
     "coding": [
         "You are Claude Code acting as the autonomous coding executor for 0xClaw.",
         "You are executing Phase 5 only: Coding / implementation. Assume research, ideation, "
@@ -162,8 +162,6 @@ class ClaudeCodeExecutor:
             cwd=str(self._workspace),
             model=model,
             permission_mode=self._config.permission_mode,
-            setting_sources=["project"],
-            skills="all",
             add_dirs=self._extra_read_dirs(),
             env=self._build_env(),
         )
@@ -229,7 +227,7 @@ class ClaudeCodeExecutor:
     # --- prompt assembly --------------------------------------------------------
 
     def _messages_to_prompt(self, messages: list[dict[str, Any]]) -> str:
-        parts: list[str] = list(_PHASE_PROMPTS.get(self._phase, _PHASE_PROMPTS["coding"]))
+        parts: list[str] = list(PHASE_PROMPTS.get(self._phase, PHASE_PROMPTS["coding"]))
         parts.insert(1, f"Repository workspace root: {self._workspace}")
 
         distilled = self._distill_system_messages(messages)
@@ -305,14 +303,18 @@ class ClaudeCodeProvider(LLMProvider):
         *,
         default_model: str,
         phase: str = "coding",
+        workspace: Path | None = None,
     ):
         super().__init__(api_key=None, api_base=None)
         self._config = config
         self._default_model = default_model
         self._phase = phase
+        # Use the injected workspace (AgentLoop.workspace) for correct path resolution.
+        # Fall back to Path.cwd()/"workspace" — valid when 0xclaw is run from project root.
+        agent_workspace = workspace if workspace is not None else Path.cwd() / "workspace"
         self._executor = ClaudeCodeExecutor(
             config,
-            workspace=Path(config.cwd),
+            workspace=agent_workspace,
             default_model=default_model,
             phase=phase,
         )

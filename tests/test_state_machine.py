@@ -160,7 +160,7 @@ class OrchestratorStateMachineValidationTests(unittest.TestCase):
             hackathon_dir.mkdir()
             store = PipelineStateStore(hackathon_dir)
             # research status is "pending" but output files exist
-            (hackathon_dir / "context.json").write_text('{"auto": "mark"}' * 2, encoding="utf-8")
+            (hackathon_dir / "context.json").write_text('{"auto": "mark", "sources": []}', encoding="utf-8")
             (hackathon_dir / "research_summary.md").write_text("# summary\n" * 5, encoding="utf-8")
 
             sm = OrchestratorStateMachine(workspace, store)
