@@ -3,7 +3,7 @@
     {
       "phase": "research",
       "provider": "zhipu",
-      "model": "glm-4.5",
+      "model": "glm-5.1",
       "max_tokens": 16384,
       "temperature": 0.2,
       "timeout_s": 300,
@@ -39,7 +39,7 @@
     {
       "phase": "coding",
       "provider": "zhipu",
-      "model": "glm-4.5",
+      "model": "glm-5.1",
       "max_tokens": 65536,
       "temperature": 0.1,
       "timeout_s": 1800,
