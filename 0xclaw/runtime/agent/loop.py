@@ -238,6 +238,7 @@ class AgentLoop:
                 default_provider=self.provider,
                 default_model=self.model,
                 config=self._subagents_config,
+                workspace=self.workspace,
             )
             backend_provider = backend_decision.provider
             current_backend = backend_decision.actual_backend

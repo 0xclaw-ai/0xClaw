@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from loguru import logger
@@ -39,8 +40,9 @@ def _build_claude_code_provider(
     config: SubagentsConfig,
     default_model: str,
     phase: str = "coding",
+    workspace: Path | None = None,
 ) -> ClaudeCodeProvider:
-    return ClaudeCodeProvider(config.claude_code, default_model=default_model, phase=phase)
+    return ClaudeCodeProvider(config.claude_code, default_model=default_model, phase=phase, workspace=workspace)
 
 
 def _phase_policy(config: SubagentsConfig, phase: str | None):
@@ -158,6 +160,7 @@ def resolve_phase_backend(
     default_provider: LLMProvider,
     default_model: str,
     config: SubagentsConfig,
+    workspace: Path | None = None,
 ) -> SubagentBackendDecision:
     """Resolve the backend for a top-level phase execution.
 
@@ -181,7 +184,7 @@ def resolve_phase_backend(
 
     if requested == "claude_code":
         provider = _build_claude_code_provider(
-            config=config, default_model=default_model, phase=phase or "coding",
+            config=config, default_model=default_model, phase=phase or "coding", workspace=workspace,
         )
         ok, message = provider.preflight()
         if ok:
