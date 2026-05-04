@@ -1,5 +1,6 @@
 """Pipeline runner for 0xClaw hackathon agent with orchestration contracts."""
 from __future__ import annotations
+
 import argparse
 import asyncio
 import json
@@ -9,20 +10,23 @@ import textwrap
 import time
 from datetime import datetime, timezone
 from pathlib import Path
+
 ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT / "0xclaw"))
-from runtime.agent.loop import AgentLoop
-from runtime.bus.events import InboundMessage
-from runtime.bus.queue import MessageBus
-from runtime.session.manager import SessionManager
-from runtime.utils.helpers import sync_workspace_templates
+
+import main as cli_main
 from orchestration.contracts import ArtifactMeta, Envelope, wrap_artifact
 from orchestration.model_profiles import MetricsLogger, ModelProfileResolver
 from orchestration.router import SkillRouter
 from orchestration.session_control import SessionControl
 from orchestration.state import OrchestratorStateMachine, PipelineStateStore
 from orchestration.write_guard import build_phase_write_guard, install_phase_write_guards
-import main as cli_main
+from runtime.agent.loop import AgentLoop
+from runtime.bus.events import InboundMessage
+from runtime.bus.queue import MessageBus
+from runtime.session.manager import SessionManager
+from runtime.utils.helpers import sync_workspace_templates
+
 CONFIG_PATH = ROOT / "0xclaw" / "config" / "config.json"
 MODEL_PROFILES_PATH = ROOT / "0xclaw" / "config" / "model_profiles.json"
 WORKSPACE = ROOT / "workspace"
@@ -373,7 +377,6 @@ async def run(command: str, timeout_per_turn: int = 240, max_turns: int = MAX_TU
     nudge_count = 0
     auto_nudge_pending = False
     started_at = time.time()
-    phase_status = "failed"
     llm_turns = 0
     try:
         await send(llm_message)
@@ -417,7 +420,6 @@ async def run(command: str, timeout_per_turn: int = 240, max_turns: int = MAX_TU
                 await send(CONTINUATION_PROMPT)
                 nudge_count += 1
     except KeyboardInterrupt:
-        phase_status = "cancelled"
         state_machine.checkpoint(phase, "cancelled", last_error="Cancelled by Ctrl+C")
         metrics.log({
             "phase": phase,
@@ -439,7 +441,6 @@ async def run(command: str, timeout_per_turn: int = 240, max_turns: int = MAX_TU
         print(f"[✓] Output detected after loop: {output_file}")
         success = True
 
-    phase_status = "done" if success else "failed"
     elapsed = round(time.time() - started_at, 2)
     if success:
         state_machine.checkpoint(phase, "done")
