@@ -22,13 +22,39 @@ The generated project (Layer 2) is created fresh per hackathon and lives at
 ```bash
 conda activate 0xclaw          # Python 3.11, all deps installed
 cp .env.example .env           # first time only; fill in real API keys
+pip install -e .               # runtime deps only
+pip install -e .[dev]          # includes ruff linter
 ./scripts/verify_setup.sh      # confirms runtime import + workspace + API keys
 0xclaw                         # canonical runtime entrypoint
 0xclaw --logs                  # launch with loguru output visible
+0xclaw gateway                 # start Telegram/WhatsApp channel listeners
+0xclaw whatsapp login          # one-time WhatsApp bridge auth (writes ~/.0xclaw/whatsapp-auth/)
 ```
 
 `./scripts/start.sh` is an optional wrapper that activates conda and loads `.env` before running `0xclaw`.
 `./scripts/verify_setup.sh` is a preflight checker, not the runtime entrypoint.
+
+Gateway port and heartbeat are configured under `gateway.port` / `gateway.heartbeat` in `0xclaw/config/config.json`; `--port` overrides the configured port for one run.
+
+### Test and lint
+
+```bash
+# Run all tests
+python -m unittest discover -s tests -p "test_*.py" -v
+
+# Run a single test file
+python -m unittest tests.test_router -v
+
+# Run a single test method
+python -m unittest tests.test_router.KeywordMatchTests.test_exact_english_keyword_per_phase -v
+
+# Lint
+ruff check tests
+```
+
+Tests use Python `unittest` (not pytest). Each test file adds `0xclaw/` to `sys.path` and imports from `orchestration.*` directly.
+
+CI runs on push/PR to master: `ruff check tests` + `python -m unittest discover` on Python 3.11 and 3.12.
 
 ### Required `.env` keys
 
@@ -65,7 +91,7 @@ Layer 2 — Generated project (per-hackathon, gitignored)
 | `0xclaw/main.py` | Entry point: CLI loop, AgentLoop wiring, slash commands, reset/resume/stop |
 | `0xclaw/config/config.json` | Provider config (edit to set your LLM provider + API key). Env vars substituted at load time |
 | `0xclaw/config/model_profiles.json` | Per-phase model + timeout overrides |
-| `0xclaw/orchestration/state.py` | `PipelineStateStore`, `OrchestratorStateMachine` — phase deps and artifact requirements |
+| `0xclaw/orchestration/state.py` | `PipelineStateStore`, `OrchestratorStateMachine`, `PHASE_ALLOWED_WRITE_DIRS` — phase deps, artifact requirements, and per-phase write allowlist |
 | `0xclaw/orchestration/router.py` | `SkillRouter` — keyword + LLM fallback routing. Supports English and Chinese triggers |
 | `0xclaw/orchestration/contracts.py` | `Envelope`, `ArtifactMeta` dataclasses for CLI → AgentLoop messages |
 | `0xclaw/orchestration/model_profiles.py` | `ModelProfileResolver`, `MetricsLogger` |
@@ -89,8 +115,9 @@ Important: Chinese keywords use plain substring matching (not `\b` word boundari
 break for CJK characters).
 
 **`OrchestratorStateMachine`** validates phase entry — checks that all dependency phases are
-`done` and required artifact files exist — then enforces per-phase write permissions via
-`PHASE_ALLOWED_WRITE_DIRS`.
+`done` and required artifact files exist. The per-phase write allowlist `PHASE_ALLOWED_WRITE_DIRS`
+is defined in `state.py`; `write_guard.py` is the monkey-patch enforcer that consults it via
+`state_machine.assert_write_allowed()`.
 
 **`PipelineStateStore`** is a file-backed store at `workspace/hackathon/pipeline_state.json`.
 Phase lifecycle: `pending → running → done | failed | cancelled`.
@@ -144,6 +171,7 @@ applies to `exec()` working directory.
 - Default model: `glm-4.5` (`config.json`); all 7 phases use `glm-4.5` (`model_profiles.json`)
 - OpenAI-compatible API; LiteLLM routes as `zai/<model>` automatically
 - Configured under both `zhipu` and `custom` keys in `config.json` (identical settings)
+- If `README.md` and `model_profiles.json` disagree on the default model, `model_profiles.json` is authoritative — README may be stale
 
 ### FLock.io (secondary LLM — `provider: "flock"`)
 - Endpoint: `https://api.flock.io/v1`
@@ -151,9 +179,9 @@ applies to `exec()` working directory.
 - Routed through LiteLLM as `openai/<model>` with `api_base` override
 - HTTP 400 = budget exhausted
 
-### Anyway (observability — optional)
-  it silently disables itself — no errors, no crash.
-- Use `workflow_span(name, attrs)` context manager to wrap phase runs with traces.
+### Observability
+
+No tracing or span hooks are wired up in the runtime today — ignore any historical references to `workflow_span` or external observability backends.
 
 ### Adding a new provider
 Edit `config.json` (add under `providers`). Update `runtime/config/schema.py` only if adding
