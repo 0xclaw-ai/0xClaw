@@ -260,13 +260,24 @@ class SubagentManager:
             if final_result is None:
                 final_result = "Task completed but no final response was generated."
 
+            from orchestration.state import (
+                phase_completion_ready,  # lazy import — orchestration does not import runtime
+            )
+            if phase and not phase_completion_ready(self.workspace / "hackathon", phase):
+                error_msg = (
+                    f"Phase '{phase}' finished without producing its required completion artifacts."
+                )
+                logger.warning("Subagent [{}] phase artifact check failed: {}", task_id, error_msg)
+                await self._announce_result(task_id, label, task, error_msg, origin, "error", phase)
+                return
+
             logger.info("Subagent [{}] completed successfully", task_id)
-            await self._announce_result(task_id, label, task, final_result, origin, "ok")
+            await self._announce_result(task_id, label, task, final_result, origin, "ok", phase)
 
         except Exception as e:
             error_msg = f"Error: {str(e)}"
             logger.error("Subagent [{}] failed: {}", task_id, e)
-            await self._announce_result(task_id, label, task, error_msg, origin, "error")
+            await self._announce_result(task_id, label, task, error_msg, origin, "error", phase)
         finally:
             if backend_decision.provider is not self.provider and hasattr(backend_decision.provider, "close"):
                 try:
@@ -282,6 +293,7 @@ class SubagentManager:
         result: str,
         origin: dict[str, str],
         status: str,
+        phase: str | None,
     ) -> None:
         """Announce the subagent result to the main agent via the message bus."""
         status_text = "completed successfully" if status == "ok" else "failed"
@@ -301,7 +313,12 @@ Summarize this naturally for the user. Keep it brief (1-2 sentences). Do not men
             sender_id="subagent",
             chat_id=f"{origin['channel']}:{origin['chat_id']}",
             content=announce_content,
-            metadata={"request_id": origin.get("request_id")},
+            metadata={
+                "request_id": origin.get("request_id"),
+                "_phase": phase,
+                "_subagent_status": status,
+                "_subagent_error": result if status != "ok" else None,
+            },
         )
 
         await self.bus.publish_inbound(msg)

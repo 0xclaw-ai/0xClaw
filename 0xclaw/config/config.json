@@ -11,15 +11,6 @@
     }
   },
   "providers": {
-    "acp": {
-      "agent": "claude",
-      "modelId": "glm-4.5",
-      "cwd": "./workspace",
-      "sessionName": "0xclaw",
-      "timeoutSec": 1800,
-      "acpxCommand": "",
-      "approveAll": true
-    },
     "custom": {
       "apiKey": "${ZAI_API_KEY}",
       "apiBase": "https://api.z.ai/api/paas/v4"
@@ -41,14 +32,23 @@
       "backend": "claude_code",
       "fallbackBackend": "default_llm"
     },
+    "testing": {
+      "backend": "claude_code",
+      "fallbackBackend": "default_llm",
+      "sandbox": "e2b"
+    },
     "claudeCode": {
-      "agent": "claude",
-      "modelId": "glm-4.5",
+      "model": "",
       "cwd": "./workspace/hackathon/project",
-      "sessionName": "0xclaw-coder",
       "timeoutSec": 1800,
-      "acpxCommand": "",
-      "approveAll": true
+      "permissionMode": "acceptEdits",
+      "baseUrl": "https://api.z.ai/api/anthropic",
+      "authTokenEnv": "ZAI_API_KEY"
+    },
+    "e2b": {
+      "apiKeyEnv": "E2B_API_KEY",
+      "template": "claude",
+      "timeoutSec": 1800
     }
   },
   "channels": {
@@ -72,6 +72,16 @@
     "web": {
       "search": {
         "apiKey": "${BRAVE_API_KEY}"
+      }
+    },
+    "mcp_servers": {
+      "firecrawl": {
+        "command": "npx",
+        "args": ["-y", "firecrawl-mcp"],
+        "env": {
+          "FIRECRAWL_API_KEY": "${FIRECRAWL_API_KEY}"
+        },
+        "tool_timeout": 120
       }
     }
   },

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -42,6 +43,8 @@ PHASE_PRIMARY_OUTPUTS: dict[str, str] = {
     "doc": "submission/README.md",
 }
 
+# Authoritative completion definition. A phase is "done" only when ALL listed
+# artifacts exist. Also reused as the cleanup list for /redo and reset flows.
 PHASE_COMPLETION_ARTIFACTS: dict[str, tuple[str, ...]] = {
     "research": ("context.json", "research_summary.md"),
     "idea": ("ideas.json",),
@@ -63,7 +66,9 @@ PHASE_ALLOWED_WRITE_DIRS: dict[str, tuple[str, ...]] = {
     "selection": ("hackathon/selected_idea.json", "hackathon/pipeline_state.json", "hackathon/progress.md"),
     "planning": ("hackathon/plan.md", "hackathon/tasks.json", "hackathon/pipeline_state.json", "hackathon/progress.md"),
     "coding": ("hackathon/project", "hackathon/pipeline_state.json", "hackathon/progress.md"),
-    "testing": ("hackathon/test_results.json", "hackathon/pipeline_state.json", "hackathon/progress.md"),
+    # hackathon/project is included so the fix-and-retry loop can patch requirements.txt
+    # and import statements without the write guard blocking legitimate fixes.
+    "testing": ("hackathon/test_results.json", "hackathon/project", "hackathon/pipeline_state.json", "hackathon/progress.md"),
     "doc": ("hackathon/submission", "hackathon/project/README.md", "hackathon/pipeline_state.json", "hackathon/progress.md"),
 }
 
@@ -151,28 +156,93 @@ class PipelineStateStore:
         return state
 
 
-def phase_completion_paths(hackathon_dir: Path, phase: str) -> tuple[Path, ...]:
-    """Return the artifact paths that define phase completion."""
-    return tuple(hackathon_dir / rel for rel in PHASE_COMPLETION_ARTIFACTS.get(phase, ()))
+SEARCH_SNIPPET_WHITELIST: frozenset[str] = frozenset({
+    "hackathon.name",
+    "hackathon.prizes",
+    "hackathon.submission_deadline",
+})
+
+VALIDATION_ERRORS_FILENAME = "_validation_errors.txt"
+
+
+def validate_research_artifact(hackathon_dir: Path) -> list[str]:
+    """Content-level checks on hackathon/context.json.
+
+    Returns a list of human-readable error strings; empty list means valid.
+    Currently enforces the search_snippet whitelist — a sources[] entry with
+    type="search_snippet" may only back fields in SEARCH_SNIPPET_WHITELIST.
+    Anywhere else (sponsors, starters, judging_criteria, ...) it's a hard
+    violation that must be caught here because the LLM ignores the rule
+    when it's only stated in the SKILL prompt.
+    """
+    ctx_path = hackathon_dir / "context.json"
+    if not ctx_path.exists():
+        return []  # Missing-file check belongs to phase_completion_ready, not here.
+    try:
+        ctx = json.loads(ctx_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        return [f"context.json unreadable: {exc}"]
+    errors: list[str] = []
+    sources = ctx.get("sources", []) if isinstance(ctx, dict) else []
+    for idx, src in enumerate(sources):
+        if not isinstance(src, dict):
+            continue
+        if src.get("type") != "search_snippet":
+            continue
+        used_for_raw = src.get("used_for", "") or ""
+        fields = [f.strip() for f in str(used_for_raw).split(",") if f.strip()]
+        for field in fields:
+            base = field.split(":", 1)[0]  # strip ":Name" suffix forms
+            base_no_index = re.sub(r"\.\d+$", "", base)  # strip ".0" indexers
+            if base_no_index not in SEARCH_SNIPPET_WHITELIST:
+                errors.append(
+                    f"sources[{idx}] type=search_snippet illegal for field '{field}' "
+                    f"(url={src.get('url', '?')}). Whitelist: "
+                    f"{sorted(SEARCH_SNIPPET_WHITELIST)}."
+                )
+    return errors
+
+
+def _write_validation_errors(hackathon_dir: Path, errors: list[str]) -> None:
+    path = hackathon_dir / VALIDATION_ERRORS_FILENAME
+    if not errors:
+        path.unlink(missing_ok=True)
+        return
+    path.write_text(
+        "Phase completion blocked by validation errors:\n\n"
+        + "\n".join(f"- {e}" for e in errors)
+        + "\n",
+        encoding="utf-8",
+    )
 
 
 def phase_completion_ready(hackathon_dir: Path, phase: str) -> bool:
-    """Return True when the phase's required completion artifacts exist."""
+    """Return True when ALL of the phase's required completion artifacts exist
+    AND content-level validation passes."""
+    artifacts = PHASE_COMPLETION_ARTIFACTS.get(phase, ())
+    if not artifacts:
+        return False
     if phase == "coding":
-        output = hackathon_dir / PHASE_PRIMARY_OUTPUTS["coding"]
-        return phase_output_is_complete("coding", hackathon_dir=hackathon_dir, phase_output=output)
-    paths = phase_completion_paths(hackathon_dir, phase)
-    return bool(paths) and all(output_exists(path) for path in paths)
+        primary = hackathon_dir / PHASE_PRIMARY_OUTPUTS[phase]
+        return phase_output_is_complete("coding", hackathon_dir=hackathon_dir, phase_output=primary)
+    if not all(output_exists(hackathon_dir / a) for a in artifacts):
+        return False
+    if phase == "research":
+        errors = validate_research_artifact(hackathon_dir)
+        _write_validation_errors(hackathon_dir, errors)
+        if errors:
+            return False
+    return True
 
 
 def reconcile_pipeline_state(store: PipelineStateStore, *, persist: bool = True) -> dict:
     """Reconcile pipeline_state.json against actual hackathon artifacts.
 
-    The highest phase with completion artifacts becomes the effective checkpoint,
+    The highest phase with a primary output becomes the effective checkpoint,
     and all earlier phases are treated as complete to avoid impossible gaps like
     planning=done with selection=pending.
 
-    If no completion artifacts exist at all, stale completed/running state is
+    If no primary outputs exist at all, stale completed/running state is
     reset back to the empty-session baseline.
     """
     state = store.load()

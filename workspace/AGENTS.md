@@ -33,12 +33,29 @@ Trigger cues:
 
 Base skill:
 - Use `hackathon-research` to spawn a research agent.
+- MANDATORY: before calling spawn(), read_file("skills/hackathon-research/SKILL.md")
+  to load its Spawn Task Template, then pass that template VERBATIM as the spawn()
+  task argument.
+- The envelope payload already contains the parsed inputs — pass them through:
+    - user_command (full original input)
+    - doc_roots (list of doc-site roots the user supplied via `docs=`)
+    - scrape_urls (concrete pre-filtered URLs — sitemap-expanded by the
+      orchestrator's Python helper, agent never has to do this itself)
+- Input forms (fixed): `research <hackathon_url>` or
+  `research <hackathon_url> docs=<u1>,<u2>,<u3>`.
+- Do NOT improvise the task description, the JSON schema, or the validation rules.
+- The produced context.json MUST include `sources[]` and `unresolved`, and
+  `research_summary.md` MUST be written. If either is missing OR a
+  search_snippet violates the whitelist (only allowed for hackathon.name,
+  hackathon.prizes, hackathon.submission_deadline), state.py refuses to mark
+  the phase complete — see hackathon/_validation_errors.txt for specifics.
 
 Overlay skills:
 - Use `iterative-retrieval` before finalizing report fields.
 
 Output:
 - `hackathon/context.json`
+- `hackathon/research_summary.md`
 
 ### Phase 2 — Ideation
 Trigger cues:

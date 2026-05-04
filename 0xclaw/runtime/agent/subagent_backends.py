@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from loguru import logger
+from runtime.agent.claude_code_executor import ClaudeCodeProvider
 from runtime.config.schema import SubagentsConfig
-from runtime.providers.acp_provider import ACPConfig, ACPProvider
 from runtime.providers.base import LLMProvider, LLMResponse
 
 
@@ -38,20 +39,17 @@ def _build_claude_code_provider(
     *,
     config: SubagentsConfig,
     default_model: str,
-) -> ACPProvider:
-    claude_cfg = config.claude_code
-    return ACPProvider(
-        ACPConfig(
-            agent=claude_cfg.agent,
-            model_id=claude_cfg.model_id,
-            cwd=claude_cfg.cwd,
-            session_name=claude_cfg.session_name,
-            timeout_sec=claude_cfg.timeout_sec,
-            acpx_command=claude_cfg.acpx_command,
-            approve_all=claude_cfg.approve_all,
-        ),
-        default_model=default_model,
-    )
+    phase: str = "coding",
+    workspace: Path | None = None,
+) -> ClaudeCodeProvider:
+    return ClaudeCodeProvider(config.claude_code, default_model=default_model, phase=phase, workspace=workspace)
+
+
+def _phase_policy(config: SubagentsConfig, phase: str | None):
+    """Return the per-phase backend policy (CodingSubagentConfig / TestingSubagentConfig) or None."""
+    if not phase:
+        return None
+    return getattr(config, phase, None)
 
 
 class DefaultLLMSubagentProvider(LLMProvider):
@@ -162,12 +160,20 @@ def resolve_phase_backend(
     default_provider: LLMProvider,
     default_model: str,
     config: SubagentsConfig,
+    workspace: Path | None = None,
 ) -> SubagentBackendDecision:
-    """Resolve the backend for a top-level phase execution."""
+    """Resolve the backend for a top-level phase execution.
 
-    requested = "default_llm"
-    if phase == "coding":
-        requested = config.coding.backend or "default_llm"
+    Reads ``config.<phase>.backend`` (and ``fallback_backend``) for any phase
+    that has a per-phase policy attached to ``SubagentsConfig`` (today: coding
+    and testing). Phases without a policy fall back to ``default_llm``.
+    """
+
+    policy = _phase_policy(config, phase)
+    requested = (getattr(policy, "backend", None) or "default_llm") if policy else "default_llm"
+    fallback_backend = (
+        getattr(policy, "fallback_backend", None) or "default_llm"
+    ) if policy else "default_llm"
 
     if requested == "default_llm":
         return SubagentBackendDecision(
@@ -177,34 +183,37 @@ def resolve_phase_backend(
         )
 
     if requested == "claude_code":
-        provider = _build_claude_code_provider(config=config, default_model=default_model)
+        provider = _build_claude_code_provider(
+            config=config, default_model=default_model, phase=phase or "coding", workspace=workspace,
+        )
         ok, message = provider.preflight()
         if ok:
-            logger.info("Phase backend selected: requested={} actual={} phase={}", requested, requested, phase)
+            logger.info(
+                "Phase backend selected: requested={} actual={} phase={}",
+                requested, requested, phase,
+            )
             return SubagentBackendDecision(
                 requested_backend=requested,
                 actual_backend="claude_code",
                 provider=provider,
             )
 
-        fallback = config.coding.fallback_backend or "default_llm"
         logger.warning(
-            "Phase backend fallback: requested={} actual={} reason={}",
-            requested, fallback, message,
+            "Phase backend fallback: requested={} actual={} phase={} reason={}",
+            requested, fallback_backend, phase, message,
         )
         return SubagentBackendDecision(
             requested_backend=requested,
-            actual_backend=fallback,
+            actual_backend=fallback_backend,
             provider=DefaultLLMSubagentProvider(default_provider),
             fallback_reason=message,
         )
 
     reason = f"Unknown phase backend: {requested}"
-    fallback = config.coding.fallback_backend or "default_llm"
     logger.warning(reason)
     return SubagentBackendDecision(
         requested_backend=requested,
-        actual_backend=fallback,
+        actual_backend=fallback_backend,
         provider=DefaultLLMSubagentProvider(default_provider),
         fallback_reason=reason,
     )

@@ -29,6 +29,7 @@ sys.path.insert(0, str(Path(__file__).parent))  # makes `from runtime.xxx` work 
 
 from cli_args import parse_gateway_args, parse_whatsapp_args
 from orchestration.contracts import Envelope
+from orchestration.doc_explorer import expand_doc_urls
 from orchestration.model_profiles import ModelProfileResolver
 from orchestration.phase_completion import (
     clear_marker,
@@ -54,7 +55,6 @@ from runtime.bus.events import InboundMessage
 from runtime.bus.queue import MessageBus
 from runtime.config.schema import Config
 from runtime.cron.service import CronService
-from runtime.providers.acp_provider import ACPProvider
 from runtime.providers.custom_provider import CustomProvider
 from runtime.providers.litellm_provider import LiteLLMProvider
 from runtime.session.manager import SessionManager
@@ -198,7 +198,6 @@ def _print_banner(provider: str, model: str) -> None:
         )
     )
     _provider_display = {
-        "acp": "ACP/Claude Code",
         "flock": "FLock.io", "zhipu": "Z.ai", "openrouter": "OpenRouter",
         "anthropic": "Anthropic", "openai": "OpenAI", "deepseek": "DeepSeek",
         "gemini": "Gemini", "groq": "Groq",
@@ -257,14 +256,6 @@ def _load_config(*, validate_provider_key: bool = True) -> Config:
         model = config.agents.defaults.model
         provider_name = config.get_provider_name(model) or config.agents.defaults.provider
         provider_cfg = config.get_provider(model)
-        if provider_name == "acp":
-            ok, message = ACPProvider.from_config(config, default_model=model).preflight()
-            if not ok:
-                console.print("[red bold]✗ ACP provider is not ready.[/red bold]")
-                console.print(f"  [dim]{message}[/dim]")
-                console.print("  [dim]Install acpx, ensure `claude` is on PATH, and log into Claude Code first.[/dim]")
-                sys.exit(1)
-            return config
         if not provider_cfg or not (provider_cfg.api_key or "").strip():
             key_hints: dict[str, tuple[str, str]] = {
                 "flock": ("FLOCK_API_KEY", "https://platform.flock.io"),
@@ -289,8 +280,6 @@ def _make_provider(config: Config):
     provider_name = config.get_provider_name(model) or config.agents.defaults.provider
     p = config.get_provider(model)
 
-    if provider_name == "acp":
-        return ACPProvider.from_config(config, default_model=model)
     if provider_name == "custom":
         return CustomProvider(
             api_key=p.api_key if p else "no-key",
@@ -394,6 +383,43 @@ def _is_spawn_started_message(text: str) -> bool:
 def _is_background_handoff_progress(text: str) -> bool:
     t = (text or "").strip()
     return _is_spawn_started_message(t)
+
+
+_DOCS_PARAM_RE = re.compile(r"\bdocs=(\S+)")
+
+
+def _parse_docs_param(user_input: str) -> list[str]:
+    """Extract `docs=<u1>,<u2>` from a research command. Returns [] if absent."""
+    m = _DOCS_PARAM_RE.search(user_input)
+    if not m:
+        return []
+    return [u.strip() for u in m.group(1).split(",") if u.strip()]
+
+
+async def _build_research_payload(user_input: str, phase: str) -> dict:
+    """Build the envelope payload for a research-phase command.
+
+    For `research <hackathon> docs=<u1>,<u2>` we pre-expand each doc root
+    via sitemap.xml (with link-harvest fallback) so the spawned agent
+    receives a concrete list of URLs to firecrawl_scrape rather than being
+    asked to run a multi-step shell pipeline itself.
+    """
+    payload: dict = {"user_command": user_input, "phase": phase}
+    if phase != "research":
+        return payload
+    doc_roots = _parse_docs_param(user_input)
+    if not doc_roots:
+        return payload
+    # Run blocking HTTP fetches off the event loop to avoid freezing the REPL.
+    expansion = await asyncio.to_thread(expand_doc_urls, doc_roots)
+    flat: list[str] = []
+    for urls in expansion.values():
+        flat.extend(urls)
+    deduped = list(dict.fromkeys(flat))
+    payload["doc_roots"] = doc_roots
+    payload["scrape_urls"] = deduped
+    payload["doc_expansion"] = expansion  # per-root breakdown for audit
+    return payload
 
 
 def _prepare_phase_run(phase: str) -> None:
@@ -902,6 +928,7 @@ async def run_interactive(config: Config) -> None:
     request_counter = count(1)
     active_request_id: str | None = None
     background_request_id: str | None = None
+    background_deadline: float | None = None
 
     # ── Ctrl+C handling — never exits, only interrupts the current task ────────
     _processing = [False]   # mutable so the signal handler closure can read it
@@ -929,7 +956,7 @@ async def run_interactive(config: Config) -> None:
 
     async def _consume():
         """Drain the outbound bus. Releases prompt as soon as agent replies."""
-        nonlocal active_request_id, background_request_id
+        nonlocal active_request_id, background_request_id, background_deadline, bg_phase
         while True:
             try:
                 msg = await asyncio.wait_for(bus.consume_outbound(), timeout=1.0)
@@ -961,6 +988,22 @@ async def run_interactive(config: Config) -> None:
                     if metadata.get("_progress") and msg.content:
                         console.print(f"  [dim]↳ {msg.content}[/dim]")
                     elif msg.content:
+                        subagent_phase = metadata.get("_phase")
+                        subagent_status = metadata.get("_subagent_status")
+                        if scope == "background" and subagent_phase == bg_phase and subagent_status == "ok":
+                            state_machine.checkpoint(subagent_phase, "done")
+                            bg_phase = None
+                            background_request_id = None
+                            background_deadline = None
+                        elif scope == "background" and subagent_phase == bg_phase and subagent_status == "error":
+                            state_machine.checkpoint(
+                                subagent_phase,
+                                "failed",
+                                last_error=metadata.get("_subagent_error") or "Background task reported failure",
+                            )
+                            bg_phase = None
+                            background_request_id = None
+                            background_deadline = None
                         console.print()
                         console.print("[bold #fbbf24]🦀  0xClaw[/bold #fbbf24]")
                         console.print(Markdown(msg.content))
@@ -969,7 +1012,7 @@ async def run_interactive(config: Config) -> None:
                             background_request_id = None
                     continue
                 if metadata.get("_progress"):
-                    if _is_background_handoff_progress(msg.content or ""):
+                    if metadata.get("_background_handoff") or _is_background_handoff_progress(msg.content or ""):
                         turn_saw_background_handoff[0] = True
                     console.print(f"  [dim]↳ {msg.content}[/dim]")
                 elif not turn_done.is_set():
@@ -995,7 +1038,7 @@ async def run_interactive(config: Config) -> None:
 
     async def _monitor_background() -> None:
         """Poll for background phase output every 4 s; notify user on completion."""
-        nonlocal bg_phase, background_request_id
+        nonlocal bg_phase, background_request_id, background_deadline
         while True:
             await asyncio.sleep(4)
             if not bg_phase:
@@ -1004,9 +1047,25 @@ async def run_interactive(config: Config) -> None:
                 state_machine.checkpoint(bg_phase, "done")
                 finished = bg_phase
                 bg_phase = None
+                background_request_id = None
+                background_deadline = None
                 console.print(
                     f"\n[bold green]✓[/bold green]  Phase [#7c3aed]{finished}[/#7c3aed] complete"
                     " — type [bold #fbbf24]/resume[/bold #fbbf24] to continue.\n"
+                )
+                continue
+            if background_deadline is not None and time.time() > background_deadline:
+                state_machine.checkpoint(
+                    bg_phase,
+                    "failed",
+                    last_error="Timed out waiting for background phase completion",
+                )
+                failed_phase = bg_phase
+                bg_phase = None
+                background_request_id = None
+                background_deadline = None
+                console.print(
+                    f"\n[red]Phase [#7c3aed]{failed_phase}[/#7c3aed] timed out while running in the background.[/red]\n"
                 )
 
     consume_task = asyncio.create_task(_consume())
@@ -1060,7 +1119,7 @@ async def run_interactive(config: Config) -> None:
         return result
 
     async def _confirm_stop_running_phase() -> bool:
-        nonlocal active_phase, active_trace_id, bg_phase, background_request_id
+        nonlocal active_phase, active_trace_id, bg_phase, background_request_id, background_deadline
         target_phase = active_phase or bg_phase
         if not target_phase:
             return True
@@ -1082,6 +1141,7 @@ async def run_interactive(config: Config) -> None:
             active_trace_id = None
             bg_phase = None
             background_request_id = None
+            background_deadline = None
             console.print(
                 f"[dim]Phase [#7c3aed]{target_phase}[/#7c3aed] had already completed; continuing.[/dim]"
             )
@@ -1098,6 +1158,7 @@ async def run_interactive(config: Config) -> None:
         active_trace_id = None
         bg_phase = None
         background_request_id = None
+        background_deadline = None
         if response.response:
             console.print(f"[yellow]{response.response.strip()}[/yellow]")
         else:
@@ -1223,7 +1284,7 @@ async def run_interactive(config: Config) -> None:
                         phase=redo_route.phase,
                         agent_id="orchestrator",
                         trace_id=active_trace_id,
-                        payload={"user_command": redo_cmd, "phase": redo_route.phase},
+                        payload=await _build_research_payload(redo_cmd, redo_route.phase),
                     )
                     _append_envelope(redo_envelope)
                     redo_message = (
@@ -1246,6 +1307,7 @@ async def run_interactive(config: Config) -> None:
                         state_machine=state_machine,
                     )
                     bg_phase = active_phase if handed_off else None
+                    background_deadline = time.time() + redo_timeout if handed_off else None
                     active_phase = None
                     active_trace_id = None
                     if response.response:
@@ -1282,6 +1344,7 @@ async def run_interactive(config: Config) -> None:
                     active_trace_id = None
                     bg_phase = None
                     background_request_id = None
+                    background_deadline = None
                     console.print(f"[green]✓[/green]  {response.response.strip()}")
                     if removed:
                         console.print(f"[dim]Cleared hackathon outputs:[/dim] {len(removed)} item(s)")
@@ -1325,7 +1388,7 @@ async def run_interactive(config: Config) -> None:
                         phase=route.phase,
                         agent_id="orchestrator",
                         trace_id=active_trace_id,
-                        payload={"user_command": cmd, "phase": route.phase},
+                        payload=await _build_research_payload(cmd, route.phase),
                     )
                     _append_envelope(envelope)
                     message = (
@@ -1348,6 +1411,7 @@ async def run_interactive(config: Config) -> None:
                         state_machine=state_machine,
                     )
                     bg_phase = active_phase if handed_off else None
+                    background_deadline = time.time() + timeout_s if handed_off else None
                     active_phase = None
                     active_trace_id = None
                     if response.response:
@@ -1411,7 +1475,7 @@ async def run_interactive(config: Config) -> None:
                     phase=route.phase,
                     agent_id="orchestrator",
                     trace_id=active_trace_id,
-                    payload={"user_command": user_input, "phase": route.phase},
+                    payload=await _build_research_payload(user_input, route.phase),
                 )
                 _append_envelope(envelope)
                 routed_input = (
@@ -1434,6 +1498,7 @@ async def run_interactive(config: Config) -> None:
                     state_machine=state_machine,
                 )
                 bg_phase = active_phase if handed_off else None
+                background_deadline = time.time() + timeout_s if handed_off else None
                 active_phase = None
                 active_trace_id = None
             else:
