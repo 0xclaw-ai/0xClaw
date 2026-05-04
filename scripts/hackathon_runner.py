@@ -50,6 +50,7 @@ sys.path.insert(0, str(ROOT / "0xclaw"))
 sys.path.insert(0, str(ROOT / "scripts"))
 
 from dotenv import load_dotenv
+
 load_dotenv(ROOT / ".env")
 
 # web_search requires BRAVE_API_KEY; we don't have one, so clear it so
@@ -410,7 +411,7 @@ def show_and_select_idea(ideas_file: Path) -> bool:
     how  = "Auto-selected" if auto_selected else "Selected"
     name = out.get("name") or out.get("title", "?")
     print(f"\n  ✓ {how}: {name}")
-    print(f"  ✓ Written → workspace/hackathon/selected_idea.json\n")
+    print("  ✓ Written → workspace/hackathon/selected_idea.json\n")
     return True
 
 
@@ -503,7 +504,7 @@ def try_auto_deploy(project_dir: Path) -> "subprocess.Popen | None":
             print(f"  [deploy] ✗ {exc}")
         break
 
-    print(f"  [deploy] Could not determine entry point.")
+    print("  [deploy] Could not determine entry point.")
     print(f"  [deploy] Run manually from: {code_dir}")
     return None
 
@@ -544,9 +545,9 @@ async def run_phase_cmd(
 
 def _print_banner(total: int) -> None:
     print("\n" + "═" * 68)
-    print(f"  0xClaw Hackathon Runner")
+    print("  0xClaw Hackathon Runner")
     print(f"  {total} project ideas found in workspace/raw_ideas.md")
-    print(f"  Full pipeline: Ideation → Selection → Plan → Code → Test → Docs")
+    print("  Full pipeline: Ideation → Selection → Plan → Code → Test → Docs")
     print("═" * 68)
 
 
@@ -635,14 +636,14 @@ async def run_hackathon(
             deploy_proc = None
 
         # ── Phase 0: workspace setup ──────────────────────────────────────────
-        print(f"\n  ── Phase 0/7: Setting up project workspace ──")
+        print("\n  ── Phase 0/7: Setting up project workspace ──")
         setup_project_workspace(idea)
         # context.json was written directly (bypassing run_phase), so tell
         # the state machine that research is complete.
         _seed_state(["research"])
 
         # ── Phase 2: ideation — generate 3 variants ───────────────────────────
-        print(f"\n  ── Phase 2/7: Generating implementation variants ──")
+        print("\n  ── Phase 2/7: Generating implementation variants ──")
         ideas_file  = HACKATHON_DIR / "ideas.json"
         ideation_ok = await run_phase_cmd(
             (
@@ -661,7 +662,7 @@ async def run_hackathon(
             _seed_state(["idea"])
 
         # ── Phase 3: selection ────────────────────────────────────────────────
-        print(f"\n  ── Phase 3/7: Variant selection ──")
+        print("\n  ── Phase 3/7: Variant selection ──")
         if ideation_ok:
             sel_ok = show_and_select_idea(ideas_file)
         else:
@@ -696,7 +697,7 @@ async def run_hackathon(
         _seed_state(["selection"])
 
         # ── Phase 4: planning ─────────────────────────────────────────────────
-        print(f"\n  ── Phase 4/7: Planning architecture & task breakdown ──")
+        print("\n  ── Phase 4/7: Planning architecture & task breakdown ──")
         await run_phase_cmd(
             "plan the architecture — read selected_idea.json and context.json, "
             "then write hackathon/plan.md and hackathon/tasks.json",
@@ -717,7 +718,7 @@ async def run_hackathon(
             )
 
         # ── Phase 5: implementation ───────────────────────────────────────────
-        print(f"\n  ── Phase 5/7: Implementing the project (coding) ──")
+        print("\n  ── Phase 5/7: Implementing the project (coding) ──")
         await run_phase_cmd(
             "start coding — implement the hackathon project. "
             "Read plan.md and tasks.json. Write all code to hackathon/project/. "
@@ -738,7 +739,7 @@ async def run_hackathon(
         (HACKATHON_DIR / "project").mkdir(exist_ok=True)
 
         # ── Phase 6: testing ──────────────────────────────────────────────────
-        print(f"\n  ── Phase 6/7: Running tests ──")
+        print("\n  ── Phase 6/7: Running tests ──")
         await run_phase_cmd(
             "run tests — validate the build, run any existing test files, "
             "write hackathon/test_results.json. "
@@ -756,7 +757,7 @@ async def run_hackathon(
             )
 
         # ── Phase 7: documentation ────────────────────────────────────────────
-        print(f"\n  ── Phase 7/7: Generating documentation ──")
+        print("\n  ── Phase 7/7: Generating documentation ──")
         await run_phase_cmd(
             "prepare docs — write submission README and SUBMISSION.md to "
             "hackathon/submission/",
@@ -766,7 +767,7 @@ async def run_hackathon(
         )
 
         # ── Archive ───────────────────────────────────────────────────────────
-        print(f"\n  ── Archiving project ──")
+        print("\n  ── Archiving project ──")
         project_dir = archive_project(slug)
 
         # Progress log
@@ -809,7 +810,7 @@ async def run_hackathon(
 
     # ── Final summary ─────────────────────────────────────────────────────────
     print(f"\n{'═' * 68}")
-    print(f"  0xClaw Hackathon Runner — Session complete")
+    print("  0xClaw Hackathon Runner — Session complete")
     done_projects = sorted(PROJECTS_DIR.iterdir()) if PROJECTS_DIR.exists() else []
     print(f"  {len(done_projects)} project(s) implemented:")
     for p in done_projects:
