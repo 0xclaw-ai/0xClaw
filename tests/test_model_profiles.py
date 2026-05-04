@@ -32,7 +32,7 @@ class ModelProfileResolverTests(unittest.TestCase):
         resolver = ModelProfileResolver(REAL_CONFIG_PATH)
         profile = resolver.resolve("coding")
         self.assertEqual(profile.provider, "zhipu")
-        self.assertEqual(profile.model, "glm-4.5")
+        self.assertEqual(profile.model, "glm-5.1")
         self.assertEqual(profile.max_tokens, 65536)
         self.assertAlmostEqual(profile.temperature, 0.1)
         self.assertEqual(profile.timeout_s, 1800)
