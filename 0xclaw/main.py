@@ -181,7 +181,7 @@ def _print_banner(provider: str, model: str) -> None:
     meta = Text()
     meta.append("\n\n  Autonomous Hackathon Agent", style="white")
     meta.append("  ·  ", style="dim")
-    meta.append("v0.1.0", style="dim white")
+    meta.append("v0.1.1", style="dim white")
     meta.append("\n")
 
     content = Text()
