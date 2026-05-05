@@ -6,8 +6,7 @@
       "model": "glm-5.1",
       "max_tokens": 16384,
       "temperature": 0.2,
-      "timeout_s": 300,
-      "fallback": "doc"
+      "timeout_s": 300
     },
     {
       "phase": "idea",
@@ -15,8 +14,7 @@
       "model": "glm-4.5",
       "max_tokens": 8192,
       "temperature": 0.4,
-      "timeout_s": 240,
-      "fallback": "doc"
+      "timeout_s": 240
     },
     {
       "phase": "selection",
@@ -24,8 +22,7 @@
       "model": "glm-4.5",
       "max_tokens": 4096,
       "temperature": 0.1,
-      "timeout_s": 180,
-      "fallback": "doc"
+      "timeout_s": 180
     },
     {
       "phase": "planning",
@@ -33,8 +30,7 @@
       "model": "glm-4.5",
       "max_tokens": 32768,
       "temperature": 0.2,
-      "timeout_s": 420,
-      "fallback": "research"
+      "timeout_s": 420
     },
     {
       "phase": "coding",
@@ -42,8 +38,7 @@
       "model": "glm-5.1",
       "max_tokens": 65536,
       "temperature": 0.1,
-      "timeout_s": 1800,
-      "fallback": "planning"
+      "timeout_s": 1800
     },
     {
       "phase": "testing",
@@ -51,8 +46,7 @@
       "model": "glm-4.5",
       "max_tokens": 16384,
       "temperature": 0.1,
-      "timeout_s": 1200,
-      "fallback": "coding"
+      "timeout_s": 1200
     },
     {
       "phase": "doc",
@@ -60,8 +54,7 @@
       "model": "glm-4.5",
       "max_tokens": 16384,
       "temperature": 0.3,
-      "timeout_s": 360,
-      "fallback": null
+      "timeout_s": 360
     }
   ]
 }

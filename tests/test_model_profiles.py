@@ -37,24 +37,6 @@ class ModelProfileResolverTests(unittest.TestCase):
         self.assertAlmostEqual(profile.temperature, 0.1)
         self.assertEqual(profile.timeout_s, 1800)
 
-    def test_fallback_when_failed_true(self) -> None:
-        resolver = ModelProfileResolver(REAL_CONFIG_PATH)
-        profile = resolver.resolve_with_fallback("coding", failed=True)
-        self.assertIsNotNone(profile)
-        # coding fallback is "planning"
-        self.assertEqual(profile.phase, "planning")
-
-    def test_no_fallback_when_failed_false(self) -> None:
-        resolver = ModelProfileResolver(REAL_CONFIG_PATH)
-        profile = resolver.resolve_with_fallback("coding", failed=False)
-        self.assertEqual(profile.phase, "coding")
-
-    def test_fallback_chain_terminates_at_doc(self) -> None:
-        resolver = ModelProfileResolver(REAL_CONFIG_PATH)
-        # doc has fallback=null, so failed=True returns doc itself
-        profile = resolver.resolve_with_fallback("doc", failed=True)
-        self.assertEqual(profile.phase, "doc")
-
     def test_missing_config_file(self) -> None:
         with TemporaryDirectory() as tmp:
             missing = Path(tmp) / "nonexistent.json"
@@ -67,11 +49,6 @@ class ModelProfileResolverTests(unittest.TestCase):
             config_path.write_text(json.dumps({"profiles": []}), encoding="utf-8")
             resolver = ModelProfileResolver(config_path)
             self.assertIsNone(resolver.resolve("research"))
-
-    def test_resolve_with_fallback_unknown_phase(self) -> None:
-        resolver = ModelProfileResolver(REAL_CONFIG_PATH)
-        self.assertIsNone(resolver.resolve_with_fallback("bogus", failed=False))
-
 
 class MetricsLoggerTests(unittest.TestCase):
     def test_log_appends_record_with_timestamp(self) -> None:
