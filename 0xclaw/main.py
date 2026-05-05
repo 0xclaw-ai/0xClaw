@@ -181,7 +181,7 @@ def _print_banner(provider: str, model: str) -> None:
     meta = Text()
     meta.append("\n\n  Autonomous Hackathon Agent", style="white")
     meta.append("  ·  ", style="dim")
-    meta.append("v0.1.0", style="dim white")
+    meta.append("v0.1.1", style="dim white")
     meta.append("\n")
 
     content = Text()
@@ -479,14 +479,16 @@ def _background_request_id_for_turn(
 
 def _interpret_stop_response(response_text: str, target_phase: str | None) -> tuple[bool, bool]:
     """Return (confirmed, stopped_work) for a /stop reply."""
+    normalized = response_text.strip()
     stopped_work = (
         "Stopped " in response_text
         and " task(s)." in response_text
         and "Stopped 0 task(s)." not in response_text
     )
-    confirmed = stopped_work or response_text.strip() in {
+    confirmed = stopped_work or normalized in {
         "⏹ Stopped 0 task(s).",
         "Stopped 0 task(s).",
+        "No active task to stop.",
     }
     return confirmed, stopped_work
 
@@ -1152,8 +1154,11 @@ async def run_interactive(config: Config) -> None:
                 "Refusing to reset while local state still shows active work.[/red]"
             )
             return False
-        if stopped_work:
-            state_machine.checkpoint(target_phase, "cancelled", last_error="Cancelled by /stop")
+        if state_machine.phase_is_complete(target_phase):
+            state_machine.checkpoint(target_phase, "done")
+        else:
+            reason = "Cancelled by /stop" if stopped_work else "Cancelled by /stop; no active agent task found"
+            state_machine.checkpoint(target_phase, "cancelled", last_error=reason)
         active_phase = None
         active_trace_id = None
         bg_phase = None
