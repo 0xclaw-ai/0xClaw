@@ -21,7 +21,6 @@ class ModelProfile:
     max_tokens: int
     temperature: float
     timeout_s: int
-    fallback: str | None = None
 
 
 class ModelProfileResolver:
@@ -44,21 +43,12 @@ class ModelProfileResolver:
                 max_tokens=int(row["max_tokens"]),
                 temperature=float(row["temperature"]),
                 timeout_s=int(row["timeout_s"]),
-                fallback=row.get("fallback"),
             )
             profiles[p.phase] = p
         self._profiles = profiles
 
     def resolve(self, phase: str) -> ModelProfile | None:
         return self._profiles.get(phase)
-
-    def resolve_with_fallback(self, phase: str, *, failed: bool) -> ModelProfile | None:
-        prof = self.resolve(phase)
-        if not prof:
-            return None
-        if not failed or not prof.fallback:
-            return prof
-        return self._profiles.get(prof.fallback, prof)
 
 
 class MetricsLogger:
