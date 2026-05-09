@@ -23,7 +23,7 @@ def output_exists(path: Path | None) -> bool:
     if path is None:
         return False
     if path.is_dir():
-        return any(path.rglob("*"))
+        return next(path.iterdir(), None) is not None
     return path.exists() and path.stat().st_size > 10
 
 

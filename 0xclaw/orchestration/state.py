@@ -259,7 +259,8 @@ def reconcile_pipeline_state(store: PipelineStateStore, *, persist: bool = True)
         status = row.get("status", "pending")
         if highest_complete_idx >= 0:
             if idx <= highest_complete_idx:
-                desired = "done"
+                # Preserve "failed" — don't silently overwrite an operator-visible failure.
+                desired = status if status == "failed" else "done"
             elif status in COMPLETED_PHASE_STATUSES:
                 desired = "pending"
             else:
@@ -286,7 +287,7 @@ def reconcile_pipeline_state(store: PipelineStateStore, *, persist: bool = True)
         state["last_checkpoint"] = desired_checkpoint
         changed = True
 
-    if not any(row.get("status") == "failed" for row in rows.values()) and state.get("last_error") is not None:
+    if not any(row.get("status") in {"failed", "cancelled"} for row in rows.values()) and state.get("last_error") is not None:
         state["last_error"] = None
         changed = True
 

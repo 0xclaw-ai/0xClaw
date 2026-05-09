@@ -340,7 +340,7 @@ def _show_pipeline_status(state_store: PipelineStateStore) -> None:
         row = rows.get(phase, {"status": "pending"})
         status = row.get("status", "pending")
         icon, label, _ = status_style.get(status, status_style["pending"])
-        t.add_row(str(i), phase, icon, f"[{_[2]}]{label}[/{_[2]}]")
+        t.add_row(str(i), phase, icon, f"[{_}]{label}[/{_}]")
 
     console.print(
         Panel(
@@ -477,7 +477,7 @@ def _background_request_id_for_turn(
     return request_id if background_handoff else None
 
 
-def _interpret_stop_response(response_text: str, target_phase: str | None) -> tuple[bool, bool]:
+def _interpret_stop_response(response_text: str) -> tuple[bool, bool]:
     """Return (confirmed, stopped_work) for a /stop reply."""
     normalized = response_text.strip()
     stopped_work = (
@@ -934,14 +934,13 @@ async def run_interactive(config: Config) -> None:
 
     # ── Ctrl+C handling — never exits, only interrupts the current task ────────
     _processing = [False]   # mutable so the signal handler closure can read it
-    _loop = asyncio.get_event_loop()
+    _loop = asyncio.get_running_loop()
 
     def _on_sigint(sig, frame):
         if _processing[0]:
-            # If a phase is running in background, mark it so monitoring continues
-            if active_phase:
-                turn_saw_background_handoff[0] = True
-            # A task is in flight — unblock _send_and_wait and let user continue
+            # A task is in flight — unblock _send_and_wait and let user continue.
+            # Do NOT set turn_saw_background_handoff here: Ctrl-C should not silently
+            # promote the running phase to a background handoff. Use /stop to cancel.
             _loop.call_soon_threadsafe(turn_done.set)
             console.print(
                 "\n[yellow]⏹  Interrupted.[/yellow]"
@@ -1136,7 +1135,7 @@ async def run_interactive(config: Config) -> None:
                 "It may still be running.[/red]"
             )
             return False
-        confirmed, stopped_work = _interpret_stop_response(response.response, target_phase)
+        confirmed, stopped_work = _interpret_stop_response(response.response)
         if not confirmed and state_machine.phase_is_complete(target_phase):
             state_machine.checkpoint(target_phase, "done")
             active_phase = None
@@ -1203,15 +1202,19 @@ async def run_interactive(config: Config) -> None:
                         "  [dim]e.g.[/dim] [dim]!ls  !git log  !pwd[/dim]"
                     )
                 else:
-                    result = subprocess.run(
-                        shell_cmd, shell=True, capture_output=True, text=True, cwd=str(ROOT)
-                    )
-                    if result.stdout:
-                        console.print(result.stdout.rstrip())
-                    if result.stderr:
-                        console.print(f"[red]{result.stderr.rstrip()}[/red]")
-                    if result.returncode != 0 and not result.stdout and not result.stderr:
-                        console.print(f"[dim]Exit code {result.returncode}[/dim]")
+                    try:
+                        result = subprocess.run(
+                            shell_cmd, shell=True, capture_output=True, text=True,
+                            cwd=str(ROOT), timeout=60,
+                        )
+                        if result.stdout:
+                            console.print(result.stdout.rstrip())
+                        if result.stderr:
+                            console.print(f"[red]{result.stderr.rstrip()}[/red]")
+                        if result.returncode != 0 and not result.stdout and not result.stderr:
+                            console.print(f"[dim]Exit code {result.returncode}[/dim]")
+                    except subprocess.TimeoutExpired:
+                        console.print("[red]Command timed out after 60 seconds.[/red]")
                 continue
 
             # ── slash commands ─────────────────────────────────────────────────
