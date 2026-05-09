@@ -195,13 +195,13 @@ Inference powered by **FLock.io** and **Z.AI**
 
 <div align="center">
 <table>
-<tr><th>Phases</th><th>Model</th><th>Context</th></tr>
-<tr><td>research · idea · selection · doc</td><td><code>minimax-m2.1</code></td><td>196k</td></tr>
-<tr><td>planning · coding · testing</td><td><code>minimax-m2.5</code></td><td>205k</td></tr>
+<tr><th>Phases</th><th>Model</th></tr>
+<tr><td>research · coding</td><td><code>glm-5.1</code></td></tr>
+<tr><td>idea · selection · planning · testing · doc</td><td><code>glm-4.5</code></td></tr>
 </table>
 </div>
 
-Per-phase timeout and fallback behavior are defined in `0xclaw/config/model_profiles.json` (source of truth).
+Per-phase model, timeout, and token settings are defined in `0xclaw/config/model_profiles.json` (source of truth).
 
 ## 💬 Channels
 
