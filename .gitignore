@@ -92,5 +92,5 @@ package-lock.json
 package.json
 scripts/smoke_test_claude_code.py
 
-# EMNLP 2026
-EMNLP_2026_0xClaw/
+# Research data
+research/
