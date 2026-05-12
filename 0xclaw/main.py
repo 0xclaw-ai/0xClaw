@@ -22,6 +22,7 @@ from rich.align import Align
 from rich.columns import Columns
 from rich.console import Console, ConsoleOptions, Group
 from rich.markdown import Markdown
+from rich.markup import escape as rich_escape_markup
 from rich.padding import Padding
 from rich.panel import Panel
 from rich.rule import Rule
@@ -147,6 +148,7 @@ SLASH_COMMANDS: dict[str, str] = {
     "/resume":        "Pick CLI conversation (cancel/q at Row# prompt), then resume pipeline",
     "/sessions":      "List CLI conversations (newest activity first)",
     "/session rename": "Set display name: /session rename <#|current|key> <title>",
+    "/session delete": "Remove a CLI thread: /session delete <#|current|key>",
     "/session <name>": "Switch CLI conversation context (slug or cli:name)",
     "/redo <phase>":  "Reset phase (and downstream) and re-run it",
     "/new":           "Reset session and clear all pipeline outputs",
@@ -177,6 +179,23 @@ REDO_COMMANDS: dict[str, str] = {
     "testing": "run tests",
     "doc": "generate documentation and submission",
 }
+
+# Rich markup: printed under the CLI conversations table (see _print_cli_conversations_table).
+_CLI_SESSION_TABLE_HELP_MARKUP = (
+    "[bold dim]Sessions[/bold dim]\n"
+    "  [bold]*[/bold] active row · [bold]#[/bold] row index · new chats use [bold]cli:run-…[/bold] until "
+    "[bold]/sessions[/bold] or [bold]/session[/bold].\n"
+    "\n"
+    "[bold dim]Commands[/bold dim]\n"
+    "  [bold]/sessions[/bold] N  [dim]attach row N[/dim]   ·   [bold]/resume[/bold] N  [dim]attach + continue pipeline[/dim]\n"
+    "  [bold]/session rename[/bold] TARGET TITLE   ·   [bold]/session delete[/bold] TARGET  "
+    "[dim](jsonl under workspace/sessions/)[/dim]\n"
+    "  [dim]TARGET:[/dim] row number · [bold]current[/bold] · [bold].[/bold] · [bold]*[/bold] · full [bold]cli:…[/bold] key\n"
+    "\n"
+    "[bold dim]While[/bold dim] [bold]/resume[/bold] [bold dim]is asking for a row[/bold dim][dim]:[/dim]  "
+    "[dim]same[/dim] [bold]/session …[/bold][dim];[/dim] [bold]cancel[/bold] [dim]·[/dim] [bold]q[/bold] [dim]·[/dim] [bold]Ctrl+C[/bold] "
+    "[dim]to abort without running.[/dim]"
+)
 
 
 # ── token tracking ─────────────────────────────────────────────────────────────
@@ -510,36 +529,14 @@ def _print_cli_conversations_table(rows: list[dict[str, Any]], active_key: str, 
             padding=(0, 1),
         )
     )
-    console.print("  [bold dim]How to read this table[/bold dim]")
     console.print(
-        "    [dim]•[/dim]  [bold]*[/bold] [dim]marks the [bold]active[/bold] key: plain chat uses that thread. "
-        "Each CLI launch starts a fresh [bold]cli:run-…[/bold] thread until you attach an older row here or via "
-        "[bold]/sessions[/bold] / [bold]/session[/bold].[/dim]"
-    )
-    console.print(
-        "    [dim]•[/dim]  [bold]/session rename …[/bold] [dim]sets the human-readable [bold]name[/bold] only "
-        "(the key does not change).[/dim]"
-    )
-    console.print(
-        "        [bold #fbbf24]/session rename 2 My hackathon notes[/bold #fbbf24]"
-        "  [dim]— row [bold]2[/bold] in this table gets that name[/dim]"
-    )
-    console.print(
-        "        [bold #fbbf24]/session rename current My hackathon notes[/bold #fbbf24]"
-        "  [dim]— same, but always the [bold]active[/bold] row ([bold]current[/bold], [bold].[/bold], "
-        "or [bold]*[/bold] also work)[/dim]"
-    )
-    console.print(
-        "    [dim]•[/dim]  [bold]/sessions N[/bold] [dim]— make row [bold]N[/bold] active [bold]without[/bold] "
-        "running the pipeline.[/dim]"
-    )
-    console.print(
-        "    [dim]•[/dim]  [bold]/resume N[/bold] [dim]— make row [bold]N[/bold] active [bold]and[/bold] run "
-        "[bold]/resume[/bold] (hackathon checkpoint) for that context.[/dim]"
-    )
-    console.print(
-        "    [dim]•[/dim]  At the [bold]Row #[/bold] prompt: type [bold]cancel[/bold], [bold]q[/bold], or press "
-        "[bold]⌃C[/bold]/[bold]Ctrl+C[/bold] [dim]to abort without changing anything.\n"
+        Panel(
+            Text.from_markup(_CLI_SESSION_TABLE_HELP_MARKUP),
+            title="[#fbbf24]Session reference[/#fbbf24]",
+            border_style="#7c3aed",
+            box=rich_box.ROUNDED,
+            padding=(0, 1),
+        )
     )
 
 
@@ -670,6 +667,7 @@ class SendWaitResult:
     response: str
     timed_out: bool = False
     background_handoff: bool = False
+    interrupted: bool = False
 
 
 def _turn_request_id(sequence: int) -> str:
@@ -773,6 +771,19 @@ def _finalize_phase_run(
 
     if failure_reason:
         state_machine.checkpoint(phase, "failed", last_error=failure_reason)
+        return None, False
+
+    if result.interrupted:
+        if primary_output_ready:
+            _mark_phase_complete(phase, trace_id)
+        if state_machine.phase_is_complete(phase):
+            state_machine.checkpoint(phase, "done")
+            return None, False
+        state_machine.checkpoint(
+            phase,
+            "cancelled",
+            last_error="Interrupted (Ctrl+C); use /stop to halt the agent.",
+        )
         return None, False
 
     if primary_output_ready:
@@ -1281,24 +1292,131 @@ async def run_interactive(config: Config) -> None:
         _pick_cancel = frozenset(
             {"q", "quit", "cancel", "abort", "n", "no", "back", "exit", "esc"}
         )
-        try:
-            raw = (
-                await session.prompt_async(
-                    HTML(
-                        "<span fg='#94a3b8'>Row #</span> "
-                        "<span fg='#64748b'>(Enter = 1 · type </span><b>cancel</b><span fg='#64748b'> or </span>"
-                        "<b>q</b><span fg='#64748b'> to abort)</span> "
-                        "<b fg='#fbbf24'>›</b> "
+        while True:
+            try:
+                raw = (
+                    await session.prompt_async(
+                        HTML(
+                            "<span fg='#94a3b8'>Row #</span> "
+                            "<span fg='#64748b'>(1 · cancel · </span>"
+                            "<b>/session</b> <span fg='#64748b'>delete|rename …)</span> "
+                            "<b fg='#fbbf24'>›</b> "
+                        )
                     )
+                ).strip()
+            except KeyboardInterrupt:
+                return None, True
+            if raw.lower() in _pick_cancel:
+                return None, True
+            if not raw:
+                return resolve_session_pick("1", rows), False
+
+            if raw.startswith("/"):
+                rlow = raw.lower()
+                if rlow.startswith("/session"):
+                    se_tail = raw[8:].strip()
+                    st_low = se_tail.lower()
+                    if st_low.startswith("delete"):
+                        target_blob = se_tail[6:].strip()
+                        if not target_blob:
+                            console.print(
+                                "[yellow]Usage:[/yellow] [bold]/session delete[/bold] "
+                                "[dim]<row# | current | cli:…>[/dim]"
+                            )
+                            continue
+                        rows_now = merge_cli_session_rows(
+                            session_manager.list_sessions(), active_key=active_cli_session_key[0]
+                        )
+                        tlow = target_blob.lower()
+                        if tlow in ("current", ".", "*"):
+                            dkey = active_cli_session_key[0]
+                        elif target_blob.isdigit():
+                            pick = resolve_session_pick(target_blob, rows_now)
+                            if pick is None:
+                                console.print("[red]Invalid row number.[/red]")
+                                continue
+                            dkey = pick
+                        else:
+                            pick = resolve_session_pick(target_blob, rows_now)
+                            dkey = pick if pick is not None else cli_talk_key(target_blob)
+                        removed_file = session_manager.delete_session(dkey)
+                        if active_cli_session_key[0] == dkey:
+                            active_cli_session_key[0] = fresh_cli_run_session_key()
+                            console.print(
+                                "[dim]Active thread was deleted — new CLI thread[/dim] "
+                                f"[bold #7c3aed]{rich_escape_markup(active_cli_session_key[0])}[/bold #7c3aed]"
+                            )
+                        detail = (
+                            "session file removed."
+                            if removed_file
+                            else "no saved file for that key (cache cleared if it was loaded)."
+                        )
+                        console.print(
+                            f"[green]✓[/green]  Deleted [bold #7c3aed]{rich_escape_markup(dkey)}[/bold #7c3aed] — {detail}"
+                        )
+                        rows[:] = merge_cli_session_rows(
+                            session_manager.list_sessions(), active_key=active_cli_session_key[0]
+                        )
+                        _print_cli_conversations_table(
+                            rows, active_cli_session_key[0], title="CLI conversations (updated)"
+                        )
+                        console.print("[dim]Pick a row # below (or cancel).[/dim]")
+                        continue
+                    if st_low.startswith("rename"):
+                        rbody = se_tail[6:].strip()
+                        pair = rbody.split(maxsplit=1)
+                        if len(pair) < 2:
+                            console.print(
+                                "[yellow]Usage:[/yellow] [bold]/session rename[/bold] "
+                                "[dim]<row# | current | cli:…> <new title>[/dim]\n"
+                                "  [dim]Example:[/dim] [bold #fbbf24]/session rename 2 My hackathon notes[/bold #fbbf24]"
+                            )
+                            continue
+                        target_tok, new_title = pair[0], pair[1]
+                        rows_now = merge_cli_session_rows(
+                            session_manager.list_sessions(), active_key=active_cli_session_key[0]
+                        )
+                        tlow_r = target_tok.lower()
+                        if tlow_r in ("current", ".", "*"):
+                            dkey_r = active_cli_session_key[0]
+                        elif target_tok.isdigit():
+                            pick_r = resolve_session_pick(target_tok, rows_now)
+                            if pick_r is None:
+                                console.print("[red]Invalid row number.[/red]")
+                                continue
+                            dkey_r = pick_r
+                        else:
+                            pick_r = resolve_session_pick(target_tok, rows_now)
+                            dkey_r = pick_r if pick_r is not None else cli_talk_key(target_tok)
+                        session_manager.set_session_display_name(dkey_r, new_title)
+                        session_manager.invalidate(dkey_r)
+                        console.print(
+                            f"[dim]Renamed[/dim] [bold #7c3aed]{rich_escape_markup(dkey_r)}[/bold #7c3aed]"
+                            f" [dim]→[/dim] [bold]{rich_escape_markup(new_title.strip()[:200])}[/bold]"
+                        )
+                        rows[:] = merge_cli_session_rows(
+                            session_manager.list_sessions(), active_key=active_cli_session_key[0]
+                        )
+                        _print_cli_conversations_table(
+                            rows, active_cli_session_key[0], title="CLI conversations (updated)"
+                        )
+                        console.print("[dim]Pick a row # below (or cancel).[/dim]")
+                        continue
+                console.print(
+                    "[yellow]This prompt only accepts a row number or a full cli:… key.[/yellow]\n"
+                    "[dim]Here you can use[/dim] [bold]/session delete …[/bold] [dim]or[/dim] [bold]/session rename …[/bold][dim]; "
+                    "other slash commands: main[/dim] [bold]❯[/bold] [dim]prompt.[/dim]"
                 )
-            ).strip()
-        except KeyboardInterrupt:
-            return None, True
-        if raw.lower() in _pick_cancel:
-            return None, True
-        if not raw:
-            return resolve_session_pick("1", rows), False
-        return resolve_session_pick(raw, rows), False
+                continue
+
+            key = resolve_session_pick(raw, rows)
+            if key is None:
+                console.print(
+                    "[red]Invalid pick:[/red] use a row number 1…n, a full key (e.g. cli:direct), "
+                    "or [bold]/session delete[/bold] / [bold]/session rename[/bold][dim].[/dim]"
+                )
+                continue
+            return key, False
 
     async def _pick_cli_session_for_resume(resume_arg: str) -> bool:
         rows = merge_cli_session_rows(
@@ -1345,6 +1463,7 @@ async def run_interactive(config: Config) -> None:
     bus_task = asyncio.create_task(agent.run())
     turn_done = asyncio.Event()
     turn_done.set()
+    turn_interrupted = [False]
     turn_response: list[str] = []
     turn_saw_background_handoff = [False]
     turn_was_streamed = [False]  # whether any streaming token arrived this turn
@@ -1455,12 +1574,16 @@ async def run_interactive(config: Config) -> None:
     # ── Ctrl+C handling — never exits, only interrupts the current task ────────
     _loop = asyncio.get_running_loop()
 
+    def _signal_interrupt():
+        turn_interrupted[0] = True
+        turn_done.set()
+
     def _on_sigint(sig, frame):
         if _processing[0]:
             # A task is in flight — unblock _send_and_wait and let user continue.
             # Do NOT set turn_saw_background_handoff here: Ctrl-C should not silently
             # promote the running phase to a background handoff. Use /stop to cancel.
-            _loop.call_soon_threadsafe(turn_done.set)
+            _loop.call_soon_threadsafe(_signal_interrupt)
             console.print(
                 "\n[yellow]⏹  Interrupted[/yellow]"
                 "  [dim]([/dim][bold #fbbf24]Ctrl+C[/bold #fbbf24][dim] / Mac [/dim]"
@@ -1627,6 +1750,7 @@ async def run_interactive(config: Config) -> None:
     ) -> SendWaitResult:
         nonlocal active_request_id, background_request_id
         _processing[0] = True
+        turn_interrupted[0] = False
         turn_done.clear()
         turn_response.clear()
         turn_saw_background_handoff[0] = False
@@ -1696,6 +1820,7 @@ async def run_interactive(config: Config) -> None:
         result = SendWaitResult(
             turn_response[0] if turn_response else "",
             background_handoff=turn_saw_background_handoff[0],
+            interrupted=turn_interrupted[0],
         )
         background_request_id = _background_request_id_for_turn(
             active_request_id,
@@ -2009,9 +2134,66 @@ async def run_interactive(config: Config) -> None:
                         session_manager.set_session_display_name(dkey, new_title)
                         session_manager.invalidate(dkey)
                         console.print(
-                            f"[dim]Renamed[/dim] [bold #7c3aed]{dkey}[/bold #7c3aed]"
-                            f" [dim]→[/dim] [bold]{new_title.strip()[:200]}[/bold]\n"
+                            f"[dim]Renamed[/dim] [bold #7c3aed]{rich_escape_markup(dkey)}[/bold #7c3aed]"
+                            f" [dim]→[/dim] [bold]{rich_escape_markup(new_title.strip()[:200])}[/bold]"
                         )
+                        rows_fresh = merge_cli_session_rows(
+                            session_manager.list_sessions(), active_key=active_cli_session_key[0]
+                        )
+                        _print_cli_conversations_table(
+                            rows_fresh, active_cli_session_key[0], title="CLI conversations (updated)"
+                        )
+                        console.print()
+                        continue
+                    del_parts = rest_se.split(None, 1)
+                    if del_parts and del_parts[0].lower() == "delete":
+                        dbody = del_parts[1].strip() if len(del_parts) > 1 else ""
+                        if not dbody:
+                            console.print(
+                                "[dim]Usage:[/dim] /session delete <row# | current | cli:…>\n"
+                                "  [dim]Removes that conversation’s JSONL under[/dim] [bold]workspace/sessions/[/bold]"
+                                " [dim](does not clear hackathon pipeline outputs).[/dim]\n"
+                                "  [dim]Examples:[/dim]  [bold #fbbf24]/session delete 2[/bold #fbbf24]\n"
+                                "            [bold #fbbf24]/session delete current[/bold #fbbf24]"
+                            )
+                            continue
+                        target_del = dbody.split(maxsplit=1)[0]
+                        tlow_del = target_del.lower()
+                        if tlow_del in ("current", ".", "*"):
+                            dkey_del = active_cli_session_key[0]
+                        elif target_del.isdigit():
+                            pick_del = resolve_session_pick(target_del, rows_se)
+                            if pick_del is None:
+                                console.print("[red]Invalid row number.[/red]")
+                                continue
+                            dkey_del = pick_del
+                        else:
+                            pick_del = resolve_session_pick(target_del, rows_se)
+                            dkey_del = pick_del if pick_del is not None else cli_talk_key(target_del)
+                        removed_file = session_manager.delete_session(dkey_del)
+                        if active_cli_session_key[0] == dkey_del:
+                            active_cli_session_key[0] = fresh_cli_run_session_key()
+                            console.print(
+                                "[dim]Active thread was deleted — new CLI thread[/dim] "
+                                f"[bold #7c3aed]{rich_escape_markup(active_cli_session_key[0])}[/bold #7c3aed]"
+                            )
+                        detail = (
+                            "session file removed."
+                            if removed_file
+                            else "no saved file for that key (cache cleared if it was loaded)."
+                        )
+                        console.print(
+                            f"[green]✓[/green]  Deleted [bold #7c3aed]{rich_escape_markup(dkey_del)}[/bold #7c3aed] — {detail}"
+                        )
+                        rows_fresh_del = merge_cli_session_rows(
+                            session_manager.list_sessions(), active_key=active_cli_session_key[0]
+                        )
+                        _print_cli_conversations_table(
+                            rows_fresh_del,
+                            active_cli_session_key[0],
+                            title="CLI conversations (updated)",
+                        )
+                        console.print()
                         continue
                     slug_se = rest_se
                     if not slug_se:

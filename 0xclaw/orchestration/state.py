@@ -242,8 +242,14 @@ def reconcile_pipeline_state(store: PipelineStateStore, *, persist: bool = True)
     and all earlier phases are treated as complete to avoid impossible gaps like
     planning=done with selection=pending.
 
-    If no primary outputs exist at all, stale completed/running state is
-    reset back to the empty-session baseline.
+    Phases marked ``running`` are kept while no completion artifacts exist yet
+    (so ``/status`` reflects in-flight work). Phases marked ``cancelled`` are
+    never overwritten to ``done`` by artifact inference (same as ``failed``).
+
+    If no completion artifacts exist at all, only bogus ``done``/``complete``
+    rows are reset to ``pending``; ``running``, ``cancelled``, and ``failed``
+    are left unchanged. Stale ``running`` after a crash is still possible until
+    the operator uses ``/stop`` or ``/redo``.
     """
     state = store.load()
     rows = {row["name"]: row for row in state["phases"]}
@@ -259,14 +265,14 @@ def reconcile_pipeline_state(store: PipelineStateStore, *, persist: bool = True)
         status = row.get("status", "pending")
         if highest_complete_idx >= 0:
             if idx <= highest_complete_idx:
-                # Preserve "failed" — don't silently overwrite an operator-visible failure.
-                desired = status if status == "failed" else "done"
+                # Preserve operator-visible terminal states — don't infer "done" over them.
+                desired = status if status in ("failed", "cancelled") else "done"
             elif status in COMPLETED_PHASE_STATUSES:
                 desired = "pending"
             else:
                 desired = status
         else:
-            desired = "pending" if status in COMPLETED_PHASE_STATUSES or status == "running" else status
+            desired = "pending" if status in COMPLETED_PHASE_STATUSES else status
 
         if desired != status:
             row["status"] = desired
