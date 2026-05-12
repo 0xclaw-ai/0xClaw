@@ -13,11 +13,14 @@ import time
 from dataclasses import dataclass
 from itertools import count
 from pathlib import Path
+from typing import Any
 
 from dotenv import load_dotenv
 from loguru import logger
 from rich import box as rich_box
-from rich.console import Console
+from rich.align import Align
+from rich.columns import Columns
+from rich.console import Console, ConsoleOptions, Group
 from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.table import Table
@@ -30,7 +33,7 @@ sys.path.insert(0, str(Path(__file__).parent))  # makes `from runtime.xxx` work 
 from cli_args import parse_gateway_args, parse_whatsapp_args
 from orchestration.contracts import Envelope
 from orchestration.doc_explorer import expand_doc_urls
-from orchestration.model_profiles import ModelProfileResolver
+from orchestration.model_profiles import ModelProfile, ModelProfileResolver
 from orchestration.phase_completion import (
     clear_marker,
     detect_failure_reason,
@@ -171,6 +174,73 @@ class TokenCounter:
             f"↑{self._k(self.prompt_tokens)} ↓{self._k(self.completion_tokens)}"
             f"  total {self._k(self.total_tokens)}"
         )
+
+    def fmt_rich_live(self, *, stream_chars: int = 0) -> Text:
+        """Compact usage for Live / streaming footer (session Σ + rough stream out)."""
+        t = Text()
+        if stream_chars > 0:
+            approx = max(1, stream_chars // 4)
+            t.append("~", style="dim #64748b")
+            t.append(self._k(approx), style="italic #94a3b8")
+            t.append(" out", style="italic #64748b")
+        if self.total_tokens > 0:
+            if t.plain:
+                t.append("  ·  ", style="dim")
+            t.append("↑", style="dim")
+            t.append(self._k(self.prompt_tokens), style="#a8b4c4")
+            t.append(" ↓", style="dim")
+            t.append(self._k(self.completion_tokens), style="#a8b4c4")
+            t.append(" Σ ", style="dim")
+            t.append(self._k(self.total_tokens), style="#cbd5e1")
+        return t
+
+
+def _oxclaw_header_text() -> Text:
+    """Branded header: crab + hair space + wordmark (tighter than two ASCII spaces)."""
+    line = Text()
+    line.append("🦀", style="bold #fbbf24")
+    line.append("\u200a", style="bold #fbbf24")  # hair space
+    line.append("0xClaw", style="bold #fbbf24")
+    return line
+
+
+class _OxClawWaitLine:
+    """One-line waiting UI: Braille spinner (circular) + static crab + brand + verb."""
+
+    __slots__ = ("_verbs", "_idx", "_counter", "_stream_buf")
+
+    _braille = ("⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏")
+
+    def __init__(
+        self,
+        verbs: tuple[str, ...],
+        idx_cell: list[int],
+        counter: TokenCounter,
+        stream_buf: list[str],
+    ) -> None:
+        self._verbs = verbs
+        self._idx = idx_cell
+        self._counter = counter
+        self._stream_buf = stream_buf
+
+    def __rich_console__(self, console: Console, options: ConsoleOptions):
+        tick = int(console.get_time() / 0.07) % len(self._braille)
+        spin = self._braille[tick]
+        verb = self._verbs[self._idx[0] % len(self._verbs)]
+        left = Text()
+        left.append(spin, style="bold #fbbf24")
+        left.append(" ", style="dim")
+        left.append("🦀", style="bold #fbbf24")
+        left.append("\u200a", style="bold #fbbf24")
+        left.append("0xClaw", style="bold #fbbf24")
+        left.append(" · ", style="dim")
+        left.append(f"{verb}…", style="italic #94a3b8")
+        stream_chars = sum(len(x) for x in self._stream_buf)
+        right = self._counter.fmt_rich_live(stream_chars=stream_chars)
+        if not right.plain:
+            yield left
+        else:
+            yield Columns([left, Align.right(right, vertical="middle")], expand=True)
 
 
 # ── banner ─────────────────────────────────────────────────────────────────────
@@ -493,6 +563,38 @@ def _interpret_stop_response(response_text: str) -> tuple[bool, bool]:
     return confirmed, stopped_work
 
 
+def _apply_phase_profile(agent: Any, profile: ModelProfile | None) -> dict[str, Any]:
+    """Temporarily override agent model params from a phase profile.
+
+    Returns a snapshot of the original values so callers can restore them
+    after the phase completes.  Pass ``None`` profile to skip (returns
+    current values unchanged).
+    """
+    snapshot = {
+        "model": agent.model,
+        "temperature": agent.temperature,
+        "max_tokens": agent.max_tokens,
+    }
+    if profile is not None:
+        agent.model = profile.model
+        agent.temperature = profile.temperature
+        agent.max_tokens = profile.max_tokens
+        agent.subagents.model = profile.model
+        agent.subagents.temperature = profile.temperature
+        agent.subagents.max_tokens = profile.max_tokens
+    return snapshot
+
+
+def _restore_agent_params(agent: Any, snapshot: dict[str, Any]) -> None:
+    """Restore agent params from a snapshot taken by ``_apply_phase_profile``."""
+    agent.model = snapshot["model"]
+    agent.temperature = snapshot["temperature"]
+    agent.max_tokens = snapshot["max_tokens"]
+    agent.subagents.model = snapshot["model"]
+    agent.subagents.temperature = snapshot["temperature"]
+    agent.subagents.max_tokens = snapshot["max_tokens"]
+
+
 def _finalize_phase_run(
     *,
     phase: str,
@@ -541,6 +643,27 @@ def _make_tracking_provider(config: Config, counter: TokenCounter):
             if resp.usage:
                 counter.add(resp.usage)
             return resp
+
+        async def chat_stream(
+            self,
+            messages,
+            tools=None,
+            model=None,
+            max_tokens=4096,
+            temperature=0.7,
+            reasoning_effort=None,
+        ):
+            async for delta_text, resp in inner.chat_stream(
+                messages,
+                tools=tools,
+                model=model,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                reasoning_effort=reasoning_effort,
+            ):
+                if resp is not None and resp.usage:
+                    counter.add(resp.usage)
+                yield delta_text, resp
 
         def get_default_model(self) -> str:
             return inner.get_default_model()
@@ -922,15 +1045,47 @@ async def run_interactive(config: Config) -> None:
 
     _print_banner(config.agents.defaults.provider, config.agents.defaults.model)
 
+    from rich.live import Live
+
     bus_task = asyncio.create_task(agent.run())
     turn_done = asyncio.Event()
     turn_done.set()
     turn_response: list[str] = []
     turn_saw_background_handoff = [False]
+    turn_was_streamed = [False]  # whether any streaming token arrived this turn
+    turn_streamed_text: list[str] = []  # accumulated streaming text for result
+    turn_live: list[Live | None] = [None]  # reference to active Live context
     request_counter = count(1)
     active_request_id: str | None = None
     background_request_id: str | None = None
     background_deadline: float | None = None
+
+    # ── Live status: Braille spinner + crab + verbs + token hint (Claude Code–ish) ─
+    _spinner_verbs = (
+        "Accomplishing", "Architecting", "Baking", "Bootstrapping", "Brewing",
+        "Calculating", "Cerebrating", "Cogitating", "Combobulating", "Computing",
+        "Concocting", "Contemplating", "Cooking", "Crafting", "Crunching",
+        "Deciphering", "Deliberating", "Elucidating", "Envisioning", "Forging",
+        "Generating", "Gitifying", "Hatching", "Ideating", "Imagining",
+        "Incubating", "Inferring", "Marinating", "Mulling", "Musing",
+        "Orchestrating", "Percolating", "Philosophising", "Pondering", "Processing",
+        "Ruminating", "Simmering", "Synthesizing", "Tinkering", "Thinking",
+        "Wrangling",
+    )
+    _spinner_idx = [0]
+
+    def _advance_spinner():
+        _spinner_idx[0] += 1
+
+    def _build_live_renderable() -> Any:
+        if turn_streamed_text:
+            body = "".join(turn_streamed_text)
+            nchars = len(body)
+            foot = token_counter.fmt_rich_live(stream_chars=nchars)
+            if not foot.plain:
+                return Markdown(body)
+            return Group(Markdown(body), Align.right(foot))
+        return _OxClawWaitLine(_spinner_verbs, _spinner_idx, token_counter, turn_streamed_text)
 
     # ── Ctrl+C handling — never exits, only interrupts the current task ────────
     _processing = [False]   # mutable so the signal handler closure can read it
@@ -970,6 +1125,9 @@ async def run_interactive(config: Config) -> None:
                     is_notification=bool(metadata.get("_notification")),
                 )
                 if scope is None:
+                    if metadata.get("_streaming"):
+                        turn_was_streamed[0] = True
+                        turn_streamed_text.append(msg.content or "")
                     preview = (msg.content or "").strip().replace("\n", " ")
                     if len(preview) > 120:
                         preview = preview[:117] + "..."
@@ -1006,32 +1164,37 @@ async def run_interactive(config: Config) -> None:
                             background_request_id = None
                             background_deadline = None
                         console.print()
-                        console.print("[bold #fbbf24]🦀  0xClaw[/bold #fbbf24]")
+                        console.print(_oxclaw_header_text())
                         console.print(Markdown(msg.content))
                         console.print()
                         if scope == "background" and not bg_phase:
                             background_request_id = None
                     continue
+
+                # ── Active-scope messages: ONLY update Live, NEVER print directly ──
                 if metadata.get("_progress"):
                     if metadata.get("_background_handoff") or _is_background_handoff_progress(msg.content or ""):
                         turn_saw_background_handoff[0] = True
-                    console.print(f"  [dim]↳ {msg.content}[/dim]")
+                    if metadata.get("_streaming"):
+                        turn_was_streamed[0] = True
+                        turn_streamed_text.append(msg.content)
+                    elif turn_live[0] is not None:
+                        _advance_spinner()
+                    # Update Live display with current state
+                    if turn_live[0] is not None:
+                        turn_live[0].update(_build_live_renderable())
                 elif not turn_done.is_set():
                     if _is_spawn_started_message(msg.content or ""):
                         turn_saw_background_handoff[0] = True
-                        console.print(f"  [dim]↳ {msg.content}[/dim]")
                     elif msg.content:
-                        # Agent sent a substantive reply — release the prompt immediately.
-                        # Background phase (if any) is monitored by _monitor_background.
-                        turn_response.append(msg.content)
+                        if turn_was_streamed[0]:
+                            turn_response.append("".join(turn_streamed_text))
+                        else:
+                            turn_response.append(msg.content)
                         turn_done.set()
                     elif active_phase is None:
                         turn_done.set()
-                elif msg.content:
-                    console.print()
-                    console.print("[bold #fbbf24]🦀  0xClaw[/bold #fbbf24]")
-                    console.print(Markdown(msg.content))
-                    console.print()
+                # Late messages after turn_done — silently ignore to prevent duplicates
             except asyncio.TimeoutError:
                 continue
             except asyncio.CancelledError:
@@ -1083,6 +1246,8 @@ async def run_interactive(config: Config) -> None:
         turn_done.clear()
         turn_response.clear()
         turn_saw_background_handoff[0] = False
+        turn_was_streamed[0] = False
+        turn_streamed_text.clear()
         active_request_id = _turn_request_id(next(request_counter))
         await bus.publish_inbound(InboundMessage(
             channel="cli",
@@ -1094,20 +1259,45 @@ async def run_interactive(config: Config) -> None:
                 "request_id": active_request_id,
             },
         ))
+
+        # Background task to rotate spinner verbs by advancing the index
+        async def _spin_timer():
+            while not turn_done.is_set():
+                await asyncio.sleep(2.0)
+                _advance_spinner()
+                if turn_live[0] is not None and not turn_was_streamed[0]:
+                    turn_live[0].update(_build_live_renderable())
+
+        spin_task = asyncio.create_task(_spin_timer())
+
         try:
-            with console.status("[dim]0xClaw is thinking…[/dim]", spinner="dots"):
-                await asyncio.wait_for(turn_done.wait(), timeout=timeout_s)
-        except asyncio.TimeoutError:
-            turn_done.set()
-            background_request_id = _background_request_id_for_turn(
-                active_request_id,
-                background_handoff=turn_saw_background_handoff[0],
-            )
-            active_request_id = None
-            console.print(f"[yellow]Timed out after {timeout_s}s waiting for agent confirmation.[/yellow]")
-            return SendWaitResult("", timed_out=True, background_handoff=turn_saw_background_handoff[0])
+            with Live(
+                _build_live_renderable(),
+                console=console,
+                vertical_overflow="visible",
+                refresh_per_second=10,
+                transient=True,
+            ) as live:
+                turn_live[0] = live
+                try:
+                    await asyncio.wait_for(turn_done.wait(), timeout=timeout_s)
+                except asyncio.TimeoutError:
+                    turn_done.set()
+                    background_request_id = _background_request_id_for_turn(
+                        active_request_id,
+                        background_handoff=turn_saw_background_handoff[0],
+                    )
+                    active_request_id = None
+                    console.print(f"[yellow]Timed out after {timeout_s}s waiting for agent confirmation.[/yellow]")
+                    return SendWaitResult("", timed_out=True, background_handoff=turn_saw_background_handoff[0])
         finally:
+            turn_live[0] = None
+            spin_task.cancel()
             _processing[0] = False
+
+        # Live was transient — nothing left on screen. Callers render the assistant
+        # reply (header + Markdown + token footer) once after return.
+
         result = SendWaitResult(
             turn_response[0] if turn_response else "",
             background_handoff=turn_saw_background_handoff[0],
@@ -1284,6 +1474,7 @@ async def run_interactive(config: Config) -> None:
                             f"[dim](timeout {redo_profile.timeout_s}s)[/dim]"
                         )
                     _prepare_phase_run(redo_route.phase)
+                    param_snapshot = _apply_phase_profile(agent, redo_profile)
                     active_phase = redo_route.phase
                     active_trace_id = f"cli-{int(time.time())}-{redo_route.phase}"
                     state_machine.checkpoint(redo_route.phase, "running", active_task=active_trace_id)
@@ -1314,13 +1505,14 @@ async def run_interactive(config: Config) -> None:
                         result=response,
                         state_machine=state_machine,
                     )
+                    _restore_agent_params(agent, param_snapshot)
                     bg_phase = active_phase if handed_off else None
                     background_deadline = time.time() + redo_timeout if handed_off else None
                     active_phase = None
                     active_trace_id = None
                     if response.response:
                         console.print()
-                        console.print("[bold #fbbf24]🦀  0xClaw[/bold #fbbf24]")
+                        console.print(_oxclaw_header_text())
                         console.print(Markdown(response.response))
                         tok = token_counter.fmt()
                         if tok:
@@ -1388,6 +1580,7 @@ async def run_interactive(config: Config) -> None:
                             f"[dim](timeout {profile.timeout_s}s)[/dim]"
                         )
                     _prepare_phase_run(route.phase)
+                    param_snapshot = _apply_phase_profile(agent, profile)
                     active_phase = route.phase
                     active_trace_id = f"cli-{int(time.time())}-{route.phase}"
                     state_machine.checkpoint(route.phase, "running", active_task=active_trace_id)
@@ -1418,13 +1611,14 @@ async def run_interactive(config: Config) -> None:
                         result=response,
                         state_machine=state_machine,
                     )
+                    _restore_agent_params(agent, param_snapshot)
                     bg_phase = active_phase if handed_off else None
                     background_deadline = time.time() + timeout_s if handed_off else None
                     active_phase = None
                     active_trace_id = None
                     if response.response:
                         console.print()
-                        console.print("[bold #fbbf24]🦀  0xClaw[/bold #fbbf24]")
+                        console.print(_oxclaw_header_text())
                         console.print(Markdown(response.response))
                         tok = token_counter.fmt()
                         if tok:
@@ -1474,6 +1668,7 @@ async def run_interactive(config: Config) -> None:
                     )
 
                 _prepare_phase_run(route.phase)
+                param_snapshot = _apply_phase_profile(agent, profile)
                 active_phase = route.phase
                 active_trace_id = f"cli-{int(time.time())}-{route.phase}"
                 state_machine.checkpoint(route.phase, "running", active_task=active_trace_id)
@@ -1505,6 +1700,7 @@ async def run_interactive(config: Config) -> None:
                     result=response,
                     state_machine=state_machine,
                 )
+                _restore_agent_params(agent, param_snapshot)
                 bg_phase = active_phase if handed_off else None
                 background_deadline = time.time() + timeout_s if handed_off else None
                 active_phase = None
@@ -1514,7 +1710,7 @@ async def run_interactive(config: Config) -> None:
 
             if response.response:
                 console.print()
-                console.print("[bold #fbbf24]🦀  0xClaw[/bold #fbbf24]")
+                console.print(_oxclaw_header_text())
                 console.print(Markdown(response.response))
                 tok = token_counter.fmt()
                 if tok:

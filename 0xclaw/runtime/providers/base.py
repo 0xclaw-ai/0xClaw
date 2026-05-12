@@ -2,7 +2,7 @@
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, AsyncIterator
 
 
 @dataclass
@@ -32,7 +32,7 @@ class LLMResponse:
 class LLMProvider(ABC):
     """
     Abstract base class for LLM providers.
-    
+
     Implementations should handle the specifics of each provider's API
     while maintaining a consistent interface.
     """
@@ -93,18 +93,50 @@ class LLMProvider(ABC):
     ) -> LLMResponse:
         """
         Send a chat completion request.
-        
+
         Args:
             messages: List of message dicts with 'role' and 'content'.
             tools: Optional list of tool definitions.
             model: Model identifier (provider-specific).
             max_tokens: Maximum tokens in response.
             temperature: Sampling temperature.
-        
+
         Returns:
             LLMResponse with content and/or tool calls.
         """
         pass
+
+    async def chat_stream(
+        self,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]] | None = None,
+        model: str | None = None,
+        max_tokens: int = 4096,
+        temperature: float = 0.7,
+        reasoning_effort: str | None = None,
+    ) -> AsyncIterator[tuple[str, LLMResponse | None]]:
+        """Stream a chat completion request, yielding (delta_text, None) for each
+        text chunk and ("", final_response) when the stream ends.
+
+        The default implementation falls back to non-streaming ``chat()`` and
+        yields the full content as a single chunk.  Subclasses should override
+        this method for true token-by-token streaming.
+
+        Yields:
+            Tuples of (text_delta, None) during streaming, then ("", LLMResponse)
+            with the complete response at the end.
+        """
+        response = await self.chat(
+            messages=messages,
+            tools=tools,
+            model=model,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            reasoning_effort=reasoning_effort,
+        )
+        if response.content:
+            yield response.content, None
+        yield "", response
 
     @abstractmethod
     def get_default_model(self) -> str:

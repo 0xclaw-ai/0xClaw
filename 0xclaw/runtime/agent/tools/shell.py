@@ -4,7 +4,7 @@ import asyncio
 import os
 import re
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from runtime.agent.tools.base import Tool
 
@@ -20,6 +20,7 @@ class ExecTool(Tool):
         allow_patterns: list[str] | None = None,
         restrict_to_workspace: bool = False,
         path_append: str = "",
+        write_guard: Callable[[str], str | None] | None = None,
     ):
         self.timeout = timeout
         self.working_dir = working_dir
@@ -37,6 +38,7 @@ class ExecTool(Tool):
         self.allow_patterns = allow_patterns or []
         self.restrict_to_workspace = restrict_to_workspace
         self.path_append = path_append
+        self._write_guard = write_guard
 
     @property
     def name(self) -> str:
@@ -149,6 +151,17 @@ class ExecTool(Tool):
                 if p.is_absolute() and cwd_path not in p.parents and p != cwd_path:
                     return "Error: Command blocked by safety guard (path outside working dir)"
 
+        # Phase-aware write guard: check shell redirect targets against the
+        # phase write allowlist.  Catches `> file`, `>> file`, `1> file`, `2> file`.
+        if self._write_guard is not None:
+            for target in self._extract_redirect_targets(cmd):
+                # Skip device files and special paths that are never workspace artefacts.
+                if target.startswith("/dev/"):
+                    continue
+                err = self._write_guard(target)
+                if err:
+                    return f"Error: {err}"
+
         return None
 
     @staticmethod
@@ -156,3 +169,14 @@ class ExecTool(Tool):
         win_paths = re.findall(r"[A-Za-z]:\\[^\s\"'|><;]+", command)   # Windows: C:\...
         posix_paths = re.findall(r"(?:^|[\s|>])(/[^\s\"'>]+)", command) # POSIX: /absolute only
         return win_paths + posix_paths
+
+    @staticmethod
+    def _extract_redirect_targets(command: str) -> list[str]:
+        """Extract file paths from shell redirect operators (> and >>).
+
+        Matches patterns like ``> file``, ``>> file``, ``1> file``, ``2> file``,
+        ``1>> file``, ``2>> file``.  Returns the target path strings.
+        """
+        # [fd]>>?  captures 1>, 2>, >>, 1>>, 2>>, etc.
+        pattern = r'(?:\d*>>?)\s*([^\s;|&]+)'
+        return re.findall(pattern, command)

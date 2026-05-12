@@ -325,8 +325,8 @@ class OrchestratorStateMachine:
 
         for req in REQUIRED_ARTIFACTS[phase]:
             p = self.hackathon_dir / req
-            if not p.exists():
-                errors.append(f"Missing required artifact: hackathon/{req}")
+            if not output_exists(p):
+                errors.append(f"Missing or empty required artifact: hackathon/{req}")
 
         return ValidationResult(not errors, errors)
 

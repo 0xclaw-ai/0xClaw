@@ -25,7 +25,7 @@ from runtime.agent.tools.spawn import SpawnTool
 from runtime.agent.tools.web import WebFetchTool, WebSearchTool
 from runtime.bus.events import InboundMessage, OutboundMessage
 from runtime.bus.queue import MessageBus
-from runtime.providers.base import LLMProvider
+from runtime.providers.base import LLMProvider, LLMResponse
 from runtime.session.manager import Session, SessionManager
 
 if TYPE_CHECKING:
@@ -258,14 +258,35 @@ class AgentLoop:
             while iteration < self.max_iterations:
                 iteration += 1
 
-                response = await backend_provider.chat(
+                # Use streaming for the LLM call so text tokens can be relayed
+                # in real-time via on_progress.  We accumulate the full response
+                # for tool-call parsing / session history.
+                streamed_chunks: list[str] = []
+                streamed_response: LLMResponse | None = None
+                async for delta_text, resp in backend_provider.chat_stream(
                     messages=messages,
                     tools=self.tools.get_definitions(),
                     model=self.model,
                     temperature=self.temperature,
                     max_tokens=self.max_tokens,
                     reasoning_effort=self.reasoning_effort,
-                )
+                ):
+                    if delta_text:
+                        streamed_chunks.append(delta_text)
+                        if on_progress:
+                            await on_progress(delta_text, streaming=True)
+                    if resp is not None:
+                        streamed_response = resp
+
+                # Reconstruct response from streaming (or fall back to
+                # non-streaming if the provider returned None unexpectedly).
+                if streamed_response is not None:
+                    response = streamed_response
+                else:
+                    response = LLMResponse(
+                        content="".join(streamed_chunks) or None,
+                        finish_reason="stop",
+                    )
 
                 if current_backend != "default_llm" and (
                     response.finish_reason == "error" or not response.has_tool_calls
@@ -290,9 +311,8 @@ class AgentLoop:
 
                 if response.has_tool_calls:
                     if on_progress:
-                        clean = self._strip_think(response.content)
-                        if clean:
-                            await on_progress(clean)
+                        # Content was already streamed token-by-token; only send
+                        # the tool hint (which arrives separately).
                         await on_progress(self._tool_hint(response.tool_calls), tool_hint=True)
 
                     tool_call_dicts = [
@@ -613,11 +633,13 @@ class AgentLoop:
             *,
             tool_hint: bool = False,
             background_handoff: bool = False,
+            streaming: bool = False,
         ) -> None:
             meta = dict(msg.metadata or {})
             meta["_progress"] = True
             meta["_tool_hint"] = tool_hint
             meta["_background_handoff"] = background_handoff
+            meta["_streaming"] = streaming
             await self.bus.publish_outbound(OutboundMessage(
                 channel=msg.channel, chat_id=msg.chat_id, content=content, metadata=meta,
             ))

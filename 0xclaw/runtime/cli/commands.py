@@ -481,8 +481,18 @@ def agent(
         if logs:
             from contextlib import nullcontext
             return nullcontext()
-        # Animated spinner is safe to use with prompt_toolkit input handling
-        return console.status("[dim]nanobot is thinking...[/dim]", spinner="dots")
+        # Built-in spinner draws a circular motion; crab stays static in the label.
+        thinking = Text()
+        thinking.append("🦀", style="bold #fbbf24")
+        thinking.append("\u200a", style="bold #fbbf24")
+        thinking.append("0xClaw", style="bold #fbbf24")
+        thinking.append("  thinking…", style="italic #94a3b8")
+        return console.status(
+            thinking,
+            spinner="dots2",
+            spinner_style="bold #fbbf24",
+            speed=1.0,
+        )
 
     async def _cli_progress(
         content: str,

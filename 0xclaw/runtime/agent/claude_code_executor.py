@@ -58,6 +58,14 @@ PHASE_PROMPTS: dict[str, list[str]] = {
         "create or edit code, tests, configs, and startup scripts inside cwd.",
         "If those parent files are missing, STOP and report — do not attempt to recreate "
         "research or planning artifacts. That is out of scope for this phase.",
+        "",
+        "## Write Boundary (CRITICAL)",
+        "You may ONLY write files inside cwd (the project directory) and `../coding.done.json`. "
+        "NEVER modify, overwrite, or delete files in the parent directory EXCEPT "
+        "`../coding.done.json` and `../pipeline_state.json`. Do not touch ideas.json, "
+        "selected_idea.json, context.json, plan.md, tasks.json, or any other parent-level "
+        "artifact. Violating this boundary will corrupt the pipeline state.",
+        "",
         "Do not ask clarifying questions. Make reasonable assumptions and mention any important "
         "ones in the final summary.",
     ],
@@ -96,6 +104,13 @@ PHASE_PROMPTS: dict[str, list[str]] = {
         "```",
         "Set `status=pass` only when install + import succeed and all tests pass. "
         "`partial` = some tests fail but the app runs. `fail` = cannot install or run.",
+        "",
+        "## Write Boundary (CRITICAL)",
+        "You may ONLY write files inside cwd (the project directory) and `../test_results.json`. "
+        "You may also edit files inside cwd to fix test failures. NEVER modify, overwrite, or "
+        "delete other parent-directory artifacts (ideas.json, selected_idea.json, context.json, "
+        "plan.md, tasks.json, etc.) or any sibling project directories. Violating this boundary "
+        "will corrupt the pipeline state.",
         "",
         "Do not ask clarifying questions. Make reasonable assumptions and mention any important "
         "ones in the final summary.",
