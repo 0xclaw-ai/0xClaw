@@ -90,6 +90,9 @@ def resolve_session_pick(token: str, rows: list[dict[str, Any]]) -> str | None:
     - Otherwise treated as a slug for :func:`cli_talk_key`.
     """
     token = (token or "").strip()
+    if token.startswith("/"):
+        # Slash commands belong at the main prompt — never turn "/session …" into cli:_… keys.
+        return None
     if not token:
         return str(rows[0]["key"]) if rows else None
     if token.isdigit():

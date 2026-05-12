@@ -181,6 +181,23 @@ class SessionManager:
         """Remove a session from the in-memory cache."""
         self._cache.pop(key, None)
 
+    def delete_session(self, key: str) -> bool:
+        """Remove the session JSONL under the workspace and evict cache.
+
+        Returns True if a file existed and was removed. Returns False when there
+        was no on-disk session (e.g. synthetic active row not yet saved).
+        """
+        path = self._get_session_path(key)
+        removed = False
+        if path.exists():
+            try:
+                path.unlink()
+                removed = True
+            except OSError as exc:
+                logger.warning("Failed to delete session file {}: {}", key, exc)
+        self.invalidate(key)
+        return removed
+
     def set_session_display_name(self, key: str, display_name: str) -> None:
         """Persist a human-readable label for listings (stored in session metadata)."""
         name = (display_name or "").strip()
