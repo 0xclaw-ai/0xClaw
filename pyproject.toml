@@ -56,13 +56,12 @@ select = ["E", "F", "I", "N", "W"]
 ignore = ["E501", "N999"]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/*" = ["E402", "I001"]
 # sys.path.insert before runtime imports is intentional (resolves 0x hex-literal import)
 "0xclaw/main.py" = ["E402"]
-	"scripts/run_phase.py" = ["E402"]
-	"scripts/hackathon_runner.py" = ["E402", "N806"]
-	# Runtime engine — naming conventions reflect upstream API surfaces, not our code
-	"0xclaw/runtime/agent/tools/web.py" = ["N803", "E701"]
+"scripts/run_phase.py" = ["E402"]
+"scripts/hackathon_runner.py" = ["E402", "N806"]
+# Runtime engine — naming conventions reflect upstream API surfaces, not our code
+"0xclaw/runtime/agent/tools/web.py" = ["N803", "E701"]
 "0xclaw/runtime/agent/tools/registry.py" = ["N806"]
 "0xclaw/runtime/channels/dingtalk.py" = ["E701"]
 "0xclaw/runtime/channels/qq.py" = ["N806"]

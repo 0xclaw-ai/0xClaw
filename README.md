@@ -102,6 +102,8 @@ python launcher/__main__.py --help
 
 `pip install -e .` installs both the runtime dependencies and the local CLI in editable mode.
 If you also want development tooling such as Ruff, use `pip install -e .[dev]`.
+There is **no** checked-in automated test suite or GitHub Actions workflow at the moment; add your own checks when you need them.
+
 `requirements.txt` is kept as a compatibility mirror of the same runtime dependency set.
 
 ## 🚀 Launch
@@ -122,10 +124,7 @@ Legacy scripts:
 - `scripts/run_phase.py`: single-phase engineering/debug runner.
 - `scripts/hackathon_runner.py`: deprecated compatibility path; avoid for normal workflow.
 
-Integration docs:
-- Claude Code coding backend: `docs/integrations/claude-code-subagent.md`.
-- Interactive CLI (sessions, `/resume`, slash commands): **⌨️ Commands** in this README.
-- Docs index: `docs/README.md`.
+Claude Code as the coding/testing backend: install and authenticate the `claude` CLI per the **Claude Code setup** link in the environment table above. Interactive CLI (sessions, `/resume`, slash commands): **⌨️ Commands** in this README.
 
 
 ## 👾 Demo Video
