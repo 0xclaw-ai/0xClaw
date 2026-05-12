@@ -124,6 +124,7 @@ Legacy scripts:
 
 Integration docs:
 - Claude Code coding backend: `docs/integrations/claude-code-subagent.md`.
+- Interactive CLI (sessions, `/resume`, slash commands): **⌨️ Commands** in this README.
 - Docs index: `docs/README.md`.
 
 
@@ -171,21 +172,40 @@ requires those URLs to be scraped and cited in `sources[]`.
 
 ## ⌨️ Commands
 
+### Interactive CLI (`0xclaw`)
+
+Chat history is stored under `workspace/sessions/` as JSONL files keyed by `cli:…` session ids.
+
+- **Fresh thread each launch:** when you start `0xclaw`, the CLI uses a new `cli:run-…` id until you attach an older conversation. Plain chat does not reuse `cli:direct` unless you pick it.
+- **`/resume`** lists conversations (newest activity first), lets you choose a row, then continues the **hackathon pipeline** for `workspace/hackathon/` (shared artifacts). At the **Row #** prompt, type `cancel` / `q` or press **⌃C** / **Ctrl+C** to abort without changing anything.
+- **`/sessions`** lists or switches the active conversation **without** running the pipeline.
+- **`/session <slug>`** switches to `cli:<slug>` (seeds a display name from your slug when new).
+- **`/session rename …`** sets the display **name** column only; keys stay the same.
+- **`/new`** clears hackathon + workspace runtime outputs and starts a **new** `cli:run-…` thread.
+
+Slash shortcuts in the REPL:
+
 <div align="center">
 <table>
-<tr><td><code>/status</code></td><td>Pipeline progress + session token usage</td></tr>
-<tr><td><code>/resume</code></td><td>Resume from last checkpoint</td></tr>
+<tr><td><code>/status</code></td><td>Pipeline progress, active CLI session key, token usage</td></tr>
+<tr><td><code>/resume</code> · <code>/resume N</code></td><td>Pick conversation (table or row <code>N</code>), then resume pipeline checkpoint</td></tr>
+<tr><td><code>/sessions</code> · <code>/sessions N</code></td><td>List conversations or switch to row <code>N</code> only</td></tr>
+<tr><td><code>/session …</code></td><td>Switch thread, rename, or open picker — type <code>/help</code> for full syntax</td></tr>
 <tr><td><code>/redo &lt;phase&gt;</code></td><td>Reset phase and all downstream, then re-run</td></tr>
-<tr><td><code>/new</code></td><td>Clear all outputs, fresh start</td></tr>
+<tr><td><code>/new</code></td><td>Clear outputs + new CLI thread + agent <code>/new</code></td></tr>
 <tr><td><code>/stop</code></td><td>Cancel running task</td></tr>
 <tr><td><code>/help</code></td><td>Show all commands</td></tr>
 <tr><td><code>?</code></td><td>Alias for /help</td></tr>
-<tr><td><code>!&lt;cmd&gt;</code></td><td>Run a shell command without leaving the agent (e.g. <code>!git status</code>)</td></tr>
+<tr><td><code>!&lt;cmd&gt;</code></td><td>Shell passthrough (e.g. <code>!git status</code>)</td></tr>
 </table>
 </div>
 
 Long-running phases hand off to the background after the first reply — you can keep chatting while work continues.
-**Ctrl+C** interrupts the current task but never exits — type `/exit` to quit.
+**⌃C** / **Ctrl+C** interrupts the current wait but never exits the CLI — type **`/exit`** to quit. **Esc** does not stop the model; during a run it only shows a short hint.
+
+### Maintainer note: `CLAUDE.md`
+
+Optional **local-only** notes for Cursor / Claude Code can live at the repo root as `CLAUDE.md`. The file is **gitignored** and is **not** part of the published tree—create or maintain your own copy locally if you want that workflow.
 
 ---
 
@@ -196,8 +216,7 @@ Inference powered by **FLock.io** and **Z.AI**
 <div align="center">
 <table>
 <tr><th>Phases</th><th>Model</th></tr>
-<tr><td>research · coding</td><td><code>glm-5.1</code></td></tr>
-<tr><td>idea · selection · planning · testing · doc</td><td><code>glm-4.5</code></td></tr>
+<tr><td>All pipeline phases</td><td><code>glm-5.1</code></td></tr>
 </table>
 </div>
 

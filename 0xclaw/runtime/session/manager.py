@@ -3,7 +3,7 @@
 import json
 import shutil
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -181,17 +181,33 @@ class SessionManager:
         """Remove a session from the in-memory cache."""
         self._cache.pop(key, None)
 
+    def set_session_display_name(self, key: str, display_name: str) -> None:
+        """Persist a human-readable label for listings (stored in session metadata)."""
+        name = (display_name or "").strip()
+        if len(name) > 200:
+            name = name[:200]
+        session = self.get_or_create(key)
+        session.metadata = dict(session.metadata)
+        session.metadata["display_name"] = name
+        session.updated_at = datetime.now()
+        self.save(session)
+
     def list_sessions(self) -> list[dict[str, Any]]:
         """
         List all sessions.
 
         Returns:
-            List of session info dicts.
+            List of session info dicts (newest activity first). Each row includes
+            ``sort_ts`` (ISO string) used for ordering: prefers ``updated_at``,
+            then ``created_at``, then the jsonl file mtime.
         """
         sessions = []
 
         for path in self.sessions_dir.glob("*.jsonl"):
             try:
+                mtime_iso = datetime.fromtimestamp(
+                    path.stat().st_mtime, tz=timezone.utc
+                ).isoformat()
                 # Read just the metadata line
                 with open(path, encoding="utf-8") as f:
                     first_line = f.readline().strip()
@@ -199,13 +215,22 @@ class SessionManager:
                         data = json.loads(first_line)
                         if data.get("_type") == "metadata":
                             key = data.get("key") or path.stem.replace("_", ":", 1)
+                            updated = data.get("updated_at")
+                            created = data.get("created_at")
+                            sort_ts = updated or created or mtime_iso
+                            meta = data.get("metadata")
+                            display_name = ""
+                            if isinstance(meta, dict):
+                                display_name = str(meta.get("display_name") or "").strip()
                             sessions.append({
                                 "key": key,
-                                "created_at": data.get("created_at"),
-                                "updated_at": data.get("updated_at"),
-                                "path": str(path)
+                                "created_at": created,
+                                "updated_at": updated,
+                                "path": str(path),
+                                "sort_ts": sort_ts,
+                                "display_name": display_name,
                             })
             except Exception:
                 continue
 
-        return sorted(sessions, key=lambda x: x.get("updated_at", ""), reverse=True)
+        return sorted(sessions, key=lambda x: x.get("sort_ts", ""), reverse=True)

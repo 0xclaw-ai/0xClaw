@@ -11,7 +11,7 @@
     {
       "phase": "idea",
       "provider": "zhipu",
-      "model": "glm-4.5",
+      "model": "glm-5.1",
       "max_tokens": 8192,
       "temperature": 0.4,
       "timeout_s": 240
@@ -19,7 +19,7 @@
     {
       "phase": "selection",
       "provider": "zhipu",
-      "model": "glm-4.5",
+      "model": "glm-5.1",
       "max_tokens": 4096,
       "temperature": 0.1,
       "timeout_s": 180
@@ -27,7 +27,7 @@
     {
       "phase": "planning",
       "provider": "zhipu",
-      "model": "glm-4.5",
+      "model": "glm-5.1",
       "max_tokens": 32768,
       "temperature": 0.2,
       "timeout_s": 420
@@ -43,7 +43,7 @@
     {
       "phase": "testing",
       "provider": "zhipu",
-      "model": "glm-4.5",
+      "model": "glm-5.1",
       "max_tokens": 16384,
       "temperature": 0.1,
       "timeout_s": 1200
@@ -51,7 +51,7 @@
     {
       "phase": "doc",
       "provider": "zhipu",
-      "model": "glm-4.5",
+      "model": "glm-5.1",
       "max_tokens": 16384,
       "temperature": 0.3,
       "timeout_s": 360
