@@ -1,9 +1,11 @@
 """LiteLLM provider implementation for multi-provider support."""
 
+from __future__ import annotations
+
 import os
 import secrets
 import string
-from typing import Any
+from typing import Any, AsyncIterator
 
 import json_repair
 import litellm
@@ -236,6 +238,120 @@ class LiteLLMProvider(LLMProvider):
         except Exception as e:
             # Return error as content for graceful handling
             return LLMResponse(
+                content=f"Error calling LLM: {str(e)}",
+                finish_reason="error",
+            )
+
+    async def chat_stream(
+        self,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]] | None = None,
+        model: str | None = None,
+        max_tokens: int = 4096,
+        temperature: float = 0.7,
+        reasoning_effort: str | None = None,
+    ) -> AsyncIterator[tuple[str, LLMResponse | None]]:
+        """Stream a chat completion, yielding (delta_text, None) per token chunk
+        and ("", final_response) at the end."""
+        original_model = model or self.default_model
+        model = self._resolve_model(original_model)
+
+        if self._supports_cache_control(original_model):
+            messages, tools = self._apply_cache_control(messages, tools)
+
+        max_tokens = max(1, max_tokens)
+
+        kwargs: dict[str, Any] = {
+            "model": model,
+            "messages": self._sanitize_messages(self._sanitize_empty_content(messages)),
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+            "stream": True,
+        }
+
+        self._apply_model_overrides(model, kwargs)
+
+        if self.api_key:
+            kwargs["api_key"] = self.api_key
+        if self.api_base:
+            kwargs["api_base"] = self.api_base
+        if self.extra_headers:
+            kwargs["extra_headers"] = self.extra_headers
+        if reasoning_effort:
+            kwargs["reasoning_effort"] = reasoning_effort
+            kwargs["drop_params"] = True
+        if tools:
+            kwargs["tools"] = tools
+            kwargs["tool_choice"] = "auto"
+
+        try:
+            response = await acompletion(**kwargs)
+            content_parts: list[str] = []
+            tool_calls_acc: dict[int, dict[str, Any]] = {}  # index -> {id, name, arguments_str}
+            finish_reason = "stop"
+            usage = {}
+
+            async for chunk in response:
+                if not chunk.choices:
+                    continue
+                choice = chunk.choices[0]
+                delta = choice.delta
+
+                # Text delta
+                if delta.content:
+                    content_parts.append(delta.content)
+                    yield delta.content, None
+
+                # Tool call deltas — accumulate arguments across chunks
+                if hasattr(delta, "tool_calls") and delta.tool_calls:
+                    for tc_delta in delta.tool_calls:
+                        idx = tc_delta.index if hasattr(tc_delta, "index") and tc_delta.index is not None else 0
+                        if idx not in tool_calls_acc:
+                            tool_calls_acc[idx] = {
+                                "id": _short_tool_id(),
+                                "name": "",
+                                "arguments_str": "",
+                            }
+                        entry = tool_calls_acc[idx]
+                        if hasattr(tc_delta, "id") and tc_delta.id:
+                            entry["id"] = tc_delta.id
+                        if hasattr(tc_delta.function, "name") and tc_delta.function.name:
+                            entry["name"] = tc_delta.function.name
+                        if hasattr(tc_delta.function, "arguments") and tc_delta.function.arguments:
+                            entry["arguments_str"] += tc_delta.function.arguments
+
+                if choice.finish_reason:
+                    finish_reason = choice.finish_reason
+
+                # Usage from the last chunk (some providers include it there)
+                if hasattr(chunk, "usage") and chunk.usage:
+                    usage = {
+                        "prompt_tokens": chunk.usage.prompt_tokens or 0,
+                        "completion_tokens": chunk.usage.completion_tokens or 0,
+                        "total_tokens": chunk.usage.total_tokens or 0,
+                    }
+
+            # Build final response
+            tool_calls = []
+            for idx in sorted(tool_calls_acc):
+                entry = tool_calls_acc[idx]
+                args = json_repair.loads(entry["arguments_str"]) if entry["arguments_str"] else {}
+                tool_calls.append(ToolCallRequest(
+                    id=entry["id"],
+                    name=entry["name"],
+                    arguments=args,
+                ))
+
+            final = LLMResponse(
+                content="".join(content_parts) or None,
+                tool_calls=tool_calls,
+                finish_reason=finish_reason,
+                usage=usage,
+            )
+            yield "", final
+
+        except Exception as e:
+            yield "", LLMResponse(
                 content=f"Error calling LLM: {str(e)}",
                 finish_reason="error",
             )

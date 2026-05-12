@@ -51,7 +51,12 @@ def build_phase_write_guard(
 
 
 def install_phase_write_guards(registry: Any, guard: WriteGuard) -> None:
-    """Wrap write/edit tools so path checks run before file mutations."""
+    """Wrap write/edit/exec tools so path checks run before file mutations.
+
+    - write_file / edit_file: check the ``path`` kwarg before executing.
+    - exec: inject the write_guard so shell redirects (``>``, ``>>``) are
+      validated against the phase write allowlist.
+    """
     for tool_name in ("write_file", "edit_file"):
         tool = registry.get(tool_name)
         if tool is None:
@@ -68,3 +73,7 @@ def install_phase_write_guards(registry: Any, guard: WriteGuard) -> None:
             return await __original(*args, **kwargs)
 
         tool.execute = guarded_execute  # type: ignore[method-assign]
+
+    exec_tool = registry.get("exec")
+    if exec_tool is not None and hasattr(exec_tool, "_write_guard"):
+        exec_tool._write_guard = guard
