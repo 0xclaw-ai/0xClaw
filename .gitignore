@@ -83,11 +83,13 @@ coverage.xml
 # Claude Code local session data
 .claude/
 
+# Local maintainer / Cursor notes (not in git — keep your own copy)
+CLAUDE.md
+
 .DS_Store
 .pixi/
 .pdm-python
 .pdm-build/
-CLAUDE.md
 package-lock.json
 package.json
 scripts/smoke_test_claude_code.py

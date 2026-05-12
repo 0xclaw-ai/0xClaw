@@ -310,11 +310,6 @@ class AgentLoop:
                     continue
 
                 if response.has_tool_calls:
-                    if on_progress:
-                        # Content was already streamed token-by-token; only send
-                        # the tool hint (which arrives separately).
-                        await on_progress(self._tool_hint(response.tool_calls), tool_hint=True)
-
                     tool_call_dicts = [
                         {
                             "id": tc.id,
@@ -333,6 +328,21 @@ class AgentLoop:
                     )
 
                     for tool_call in response.tool_calls:
+                        if on_progress:
+                            hint = self._tool_hint([tool_call])
+                            if tool_call.name.startswith("mcp_"):
+                                hint = f"MCP · {hint}"
+                            elif tool_call.name == "read_file":
+                                args = tool_call.arguments or {}
+                                p = str(
+                                    args.get("path")
+                                    or args.get("file")
+                                    or args.get("target_file")
+                                    or ""
+                                ).lower()
+                                if "skills/" in p or "/skills/" in p or "skill.md" in p:
+                                    hint = f"skill · {hint}"
+                            await on_progress(hint, tool_hint=True)
                         tools_used.append(tool_call.name)
                         args_str = json.dumps(tool_call.arguments, ensure_ascii=False)
                         logger.info("Tool call: {}({})", tool_call.name, args_str[:200])

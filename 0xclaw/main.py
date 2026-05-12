@@ -22,9 +22,29 @@ from rich.align import Align
 from rich.columns import Columns
 from rich.console import Console, ConsoleOptions, Group
 from rich.markdown import Markdown
+from rich.padding import Padding
 from rich.panel import Panel
+from rich.rule import Rule
+from rich.styled import Styled
 from rich.table import Table
 from rich.text import Text
+
+# ── Live / in-progress UI palette (cool slate + indigo) — distinct from final reply (gold + default) ─
+_LIVE_SPINNER = "bold #818cf8"
+_LIVE_BRAND_MUTED = "#7c86a2"
+_LIVE_VERB = "italic #64748b"
+_LIVE_RULE = "dim #4338ca"
+_LIVE_STREAM_MD = "italic #9ca3af not bold"
+_LIVE_LBL = "dim #64748b"
+_LIVE_SEP = "dim #4f46e5"
+_LIVE_TIME = "bold #a5b4fc"
+_LIVE_STREAM_TOK = "italic #c4b5fd"
+_LIVE_SIGMA_LBL = "dim #818cf8"
+_LIVE_SIGMA_NUM = "bold #c7d2fe"
+_LIVE_INOUT = "#a5b4fc"
+_LIVE_ACT_TOOL = "italic #a5b4fc"
+_LIVE_ACT_PROG = "italic dim #9fb0c0"
+_LIVE_ACT_BG = "italic #c4b5fd"
 
 # ── internal deps ──────────────────────────────────────────────────────────────
 ROOT = Path(__file__).parent.parent
@@ -44,6 +64,12 @@ from orchestration.phase_completion import (
     output_exists as phase_output_exists,
 )
 from orchestration.router import SkillRouter, keyword_matches
+from orchestration.cli_session_picker import (
+    cli_talk_key,
+    fresh_cli_run_session_key,
+    merge_cli_session_rows,
+    resolve_session_pick,
+)
 from orchestration.session_control import SessionControl
 from orchestration.state import (
     COMPLETED_PHASE_STATUSES,
@@ -118,7 +144,10 @@ LOGO_LINES = [
 # ── slash commands ─────────────────────────────────────────────────────────────
 SLASH_COMMANDS: dict[str, str] = {
     "/status":        "Show pipeline progress and session token usage",
-    "/resume":        "Resume from the latest checkpoint",
+    "/resume":        "Pick CLI conversation (cancel/q at Row# prompt), then resume pipeline",
+    "/sessions":      "List CLI conversations (newest activity first)",
+    "/session rename": "Set display name: /session rename <#|current|key> <title>",
+    "/session <name>": "Switch CLI conversation context (slug or cli:name)",
     "/redo <phase>":  "Reset phase (and downstream) and re-run it",
     "/new":           "Reset session and clear all pipeline outputs",
     "/stop":          "Cancel the current running task",
@@ -175,24 +204,73 @@ class TokenCounter:
             f"  total {self._k(self.total_tokens)}"
         )
 
-    def fmt_rich_live(self, *, stream_chars: int = 0) -> Text:
-        """Compact usage for Live / streaming footer (session Σ + rough stream out)."""
+    def fmt_rich_live(
+        self,
+        *,
+        stream_chars: int = 0,
+        turn_start_mono: list[float | None] | None = None,
+    ) -> Text:
+        """Status strip: elapsed clock, stream estimate, session token totals."""
         t = Text()
+        elapsed: float | None = None
+        if turn_start_mono and turn_start_mono[0] is not None:
+            elapsed = max(0.0, time.monotonic() - turn_start_mono[0])
+
+        def _sep() -> None:
+            t.append(" ", style="")
+            t.append("·", style=_LIVE_SEP)
+            t.append(" ", style="")
+
+        first = True
+
+        if elapsed is not None:
+            t.append("⏱", style=_LIVE_LBL)
+            t.append(" ", style="")
+            t.append(_format_elapsed(elapsed), style=_LIVE_TIME)
+            first = False
+
         if stream_chars > 0:
             approx = max(1, stream_chars // 4)
-            t.append("~", style="dim #64748b")
-            t.append(self._k(approx), style="italic #94a3b8")
-            t.append(" out", style="italic #64748b")
+            if not first:
+                _sep()
+            t.append("out", style=_LIVE_LBL)
+            t.append(" ~", style=_LIVE_LBL)
+            t.append(self._k(approx), style=_LIVE_STREAM_TOK)
+            t.append(" tok", style=_LIVE_LBL)
+            first = False
+
         if self.total_tokens > 0:
-            if t.plain:
-                t.append("  ·  ", style="dim")
-            t.append("↑", style="dim")
-            t.append(self._k(self.prompt_tokens), style="#a8b4c4")
-            t.append(" ↓", style="dim")
-            t.append(self._k(self.completion_tokens), style="#a8b4c4")
-            t.append(" Σ ", style="dim")
-            t.append(self._k(self.total_tokens), style="#cbd5e1")
+            if not first:
+                _sep()
+            t.append("Σ", style=_LIVE_SIGMA_LBL)
+            t.append(" ", style="")
+            t.append(self._k(self.total_tokens), style=_LIVE_SIGMA_NUM)
+            t.append(" ", style=_LIVE_SEP)
+            t.append("(", style=_LIVE_SEP)
+            t.append("↑", style=_LIVE_LBL)
+            t.append(self._k(self.prompt_tokens), style=_LIVE_INOUT)
+            t.append(" ", style=_LIVE_SEP)
+            t.append("↓", style=_LIVE_LBL)
+            t.append(self._k(self.completion_tokens), style=_LIVE_INOUT)
+            t.append(")", style=_LIVE_SEP)
         return t
+
+
+def _format_elapsed(seconds: float) -> str:
+    """Human-readable duration for the live status strip."""
+    if seconds < 0:
+        seconds = 0.0
+    if seconds < 60:
+        return f"{seconds:.1f}s"
+    if seconds < 3600:
+        m = int(seconds // 60)
+        s = int(seconds % 60)
+        return f"{m}m {s}s"
+    h = int(seconds // 3600)
+    rem = int(seconds % 3600)
+    m = rem // 60
+    s = rem % 60
+    return f"{h}h {m:02d}m {s:02d}s"
 
 
 def _oxclaw_header_text() -> Text:
@@ -207,7 +285,7 @@ def _oxclaw_header_text() -> Text:
 class _OxClawWaitLine:
     """One-line waiting UI: Braille spinner (circular) + static crab + brand + verb."""
 
-    __slots__ = ("_verbs", "_idx", "_counter", "_stream_buf")
+    __slots__ = ("_verbs", "_idx", "_counter", "_stream_buf", "_turn_start_mono")
 
     _braille = ("⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏")
 
@@ -217,27 +295,32 @@ class _OxClawWaitLine:
         idx_cell: list[int],
         counter: TokenCounter,
         stream_buf: list[str],
+        turn_start_mono: list[float | None],
     ) -> None:
         self._verbs = verbs
         self._idx = idx_cell
         self._counter = counter
         self._stream_buf = stream_buf
+        self._turn_start_mono = turn_start_mono
 
     def __rich_console__(self, console: Console, options: ConsoleOptions):
         tick = int(console.get_time() / 0.07) % len(self._braille)
         spin = self._braille[tick]
         verb = self._verbs[self._idx[0] % len(self._verbs)]
         left = Text()
-        left.append(spin, style="bold #fbbf24")
+        left.append(spin, style=_LIVE_SPINNER)
         left.append(" ", style="dim")
-        left.append("🦀", style="bold #fbbf24")
-        left.append("\u200a", style="bold #fbbf24")
-        left.append("0xClaw", style="bold #fbbf24")
-        left.append(" · ", style="dim")
-        left.append(f"{verb}…", style="italic #94a3b8")
+        left.append("🦀", style=_LIVE_BRAND_MUTED)
+        left.append("\u200a", style=_LIVE_BRAND_MUTED)
+        left.append("0xClaw", style=f"bold {_LIVE_BRAND_MUTED}")
+        left.append(" · ", style="dim #475569")
+        left.append(f"{verb}…", style=_LIVE_VERB)
         stream_chars = sum(len(x) for x in self._stream_buf)
-        right = self._counter.fmt_rich_live(stream_chars=stream_chars)
-        if not right.plain:
+        right = self._counter.fmt_rich_live(
+            stream_chars=stream_chars,
+            turn_start_mono=self._turn_start_mono,
+        )
+        if right.plain == "":
             yield left
         else:
             yield Columns([left, Align.right(right, vertical="middle")], expand=True)
@@ -373,12 +456,91 @@ def _show_help() -> None:
     for cmd, desc in SLASH_COMMANDS.items():
         t.add_row(cmd, desc)
     t.add_row("", "")
+    t.add_row("/resume 2", "Skip picker: attach to row #2 then resume pipeline")
+    t.add_row("", "")
     t.add_row("?",       "Alias for /help")
     t.add_row("!<cmd>",  "Run a shell command  (e.g. !ls  !git log  !pwd)")
+    t.add_row("Esc",     "During a run: shows a hint (Esc does not stop the model; use ⌃C / Ctrl+C)")
+    t.add_row("⌃C / Ctrl+C", "During a run: interrupt the wait; then /stop to cancel the agent")
     console.print(
         Panel(t, title="[#fbbf24]Commands[/#fbbf24]", border_style="#7c3aed", padding=(0, 1))
     )
 
+
+def _format_session_ts(iso: str | None) -> str:
+    if not iso:
+        return "—"
+    s = str(iso).replace("T", " ")
+    for sep in ("+", "Z"):
+        if sep in s:
+            s = s.split(sep, 1)[0]
+    return s[:19] if len(s) >= 19 else s
+
+
+def _truncate_display(s: str, max_len: int = 40) -> str:
+    t = (s or "").strip()
+    if len(t) <= max_len:
+        return t or "—"
+    return t[: max_len - 1] + "…"
+
+
+def _print_cli_conversations_table(rows: list[dict[str, Any]], active_key: str, *, title: str) -> None:
+    t = Table(box=rich_box.SIMPLE, show_header=True, padding=(0, 1))
+    t.add_column("#", style="dim", width=4, justify="right")
+    t.add_column("name", style="white")
+    t.add_column("key", style="#7c3aed")
+    t.add_column("last activity", style="dim", width=20, no_wrap=True)
+    for i, row in enumerate(rows, 1):
+        key = str(row["key"])
+        raw_name = str(row.get("display_name") or "").strip()
+        name_cell = _truncate_display(raw_name if raw_name else "—")
+        key_cell = f"* {key}" if key == active_key else key
+        ts = row.get("updated_at") or row.get("created_at") or row.get("sort_ts")
+        t.add_row(
+            str(i),
+            name_cell,
+            key_cell,
+            _format_session_ts(ts if isinstance(ts, str) else None),
+        )
+    console.print(
+        Panel(
+            t,
+            title=f"[#fbbf24]{title}[/#fbbf24]",
+            border_style="#7c3aed",
+            padding=(0, 1),
+        )
+    )
+    console.print("  [bold dim]How to read this table[/bold dim]")
+    console.print(
+        "    [dim]•[/dim]  [bold]*[/bold] [dim]marks the [bold]active[/bold] key: plain chat uses that thread. "
+        "Each CLI launch starts a fresh [bold]cli:run-…[/bold] thread until you attach an older row here or via "
+        "[bold]/sessions[/bold] / [bold]/session[/bold].[/dim]"
+    )
+    console.print(
+        "    [dim]•[/dim]  [bold]/session rename …[/bold] [dim]sets the human-readable [bold]name[/bold] only "
+        "(the key does not change).[/dim]"
+    )
+    console.print(
+        "        [bold #fbbf24]/session rename 2 My hackathon notes[/bold #fbbf24]"
+        "  [dim]— row [bold]2[/bold] in this table gets that name[/dim]"
+    )
+    console.print(
+        "        [bold #fbbf24]/session rename current My hackathon notes[/bold #fbbf24]"
+        "  [dim]— same, but always the [bold]active[/bold] row ([bold]current[/bold], [bold].[/bold], "
+        "or [bold]*[/bold] also work)[/dim]"
+    )
+    console.print(
+        "    [dim]•[/dim]  [bold]/sessions N[/bold] [dim]— make row [bold]N[/bold] active [bold]without[/bold] "
+        "running the pipeline.[/dim]"
+    )
+    console.print(
+        "    [dim]•[/dim]  [bold]/resume N[/bold] [dim]— make row [bold]N[/bold] active [bold]and[/bold] run "
+        "[bold]/resume[/bold] (hackathon checkpoint) for that context.[/dim]"
+    )
+    console.print(
+        "    [dim]•[/dim]  At the [bold]Row #[/bold] prompt: type [bold]cancel[/bold], [bold]q[/bold], or press "
+        "[bold]⌃C[/bold]/[bold]Ctrl+C[/bold] [dim]to abort without changing anything.\n"
+    )
 
 
 def _show_pipeline_status(state_store: PipelineStateStore) -> None:
@@ -894,6 +1056,23 @@ async def run_interactive(config: Config) -> None:
     from prompt_toolkit.history import FileHistory
     from prompt_toolkit.lexers import Lexer
     from prompt_toolkit.styles import Style
+    from prompt_toolkit.key_binding import KeyBindings
+    from prompt_toolkit.keys import Keys
+
+    active_phase: str | None = None
+    active_trace_id: str | None = None
+    bg_phase: str | None = None
+    bg_start_mono: list[float | None] = [None]
+    bg_status_line: list[str | None] = [None]
+    token_counter = TokenCounter()
+    _processing = [False]
+
+    def _set_bg_phase(phase: str | None) -> None:
+        nonlocal bg_phase
+        bg_phase = phase
+        bg_start_mono[0] = time.monotonic() if phase else None
+        if phase is None:
+            bg_status_line[0] = None
 
     # ── slash command + shell completer ───────────────────────────────────────
     class _SlashCompleter(Completer):
@@ -945,59 +1124,11 @@ async def run_interactive(config: Config) -> None:
                 return [("", line)]
             return get_line
 
-    # ── bottom toolbar — dynamically shows the current input mode ─────────────
-    def _toolbar():
-        try:
-            text = get_app().current_buffer.text
-        except Exception:
-            text = ""
-        if text.startswith("!"):
-            import html as _h
-            preview = _h.escape(text[1:45]) or "type a command…"
-            return HTML(
-                f'<b bg="#14532d" fg="#86efac"> $ SHELL </b>'
-                f'  <ansi fg="ansibrightgreen">{preview}</ansi>'
-                f'  <span fg="#4b5563">  Enter to run · Ctrl+C to cancel</span>'
-            )
-        if text == "?":
-            return HTML(
-                '<b bg="#1e1b4b" fg="#a78bfa"> ? HELP </b>'
-                '  <span fg="#6b7280">Show all commands and shortcuts</span>'
-            )
-        if text.startswith("/"):
-            return HTML(
-                '<b bg="#1a0a2e" fg="#fbbf24"> / CMD </b>'
-                '  <span fg="#6b7280">Agent command · Tab to autocomplete</span>'
-            )
-        return HTML(
-            '<span fg="#374151">  ? help  ·  !cmd shell  ·  /command agent  ·  or just chat</span>'
-        )
-
-    prompt_style = Style.from_dict({
-        # Input highlights
-        "slash":  "#fbbf24 bold",   # /commands — gold
-        "shell":  "#22c55e bold",   # !shell    — green
-        "help":   "#a78bfa bold",   # ?         — purple
-        # Completion dropdown — dark purple theme
-        "completion-menu.completion":              "bg:#1a0a2e #a78bfa",
-        "completion-menu.completion.current":      "bg:#7c3aed bold #fbbf24",
-        "completion-menu.meta.completion":         "bg:#1a0a2e #6b7280",
-        "completion-menu.meta.completion.current": "bg:#7c3aed #e5e7eb",
-        "scrollbar.background":                    "bg:#1a0a2e",
-        "scrollbar.button":                        "bg:#7c3aed",
-        # Bottom toolbar
-        "bottom-toolbar":                          "bg:#0f172a #4b5563",
-    })
-
-    active_phase: str | None = None
-    active_trace_id: str | None = None
-    bg_phase: str | None = None      # phase handed off to background monitor
-    token_counter = TokenCounter()
-
     # ── agent setup ────────────────────────────────────────────────────────────
     bus = MessageBus()
     provider = _make_tracking_provider(config, token_counter)
     session_manager = SessionManager(WORKSPACE)
+    active_cli_session_key: list[str] = [fresh_cli_run_session_key()]
     state_store = PipelineStateStore(HACKATHON_DIR)
     state_machine = OrchestratorStateMachine(WORKSPACE, state_store)
     session_control = SessionControl(state_store)
@@ -1030,6 +1161,107 @@ async def run_interactive(config: Config) -> None:
     install_phase_write_guards(agent.tools, write_guard)
     agent.subagents.set_write_guard(write_guard)
 
+    prompt_style = Style.from_dict({
+        "slash":  "#fbbf24 bold",
+        "shell":  "#22c55e bold",
+        "help":   "#a78bfa bold",
+        "completion-menu.completion":              "bg:#1a0a2e #a78bfa",
+        "completion-menu.completion.current":      "bg:#7c3aed bold #fbbf24",
+        "completion-menu.meta.completion":         "bg:#1a0a2e #6b7280",
+        "completion-menu.meta.completion.current": "bg:#7c3aed #e5e7eb",
+        "scrollbar.background":                    "bg:#1a0a2e",
+        "scrollbar.button":                        "bg:#7c3aed",
+        "bottom-toolbar":                          "bg:#0f172a #4b5563",
+    })
+
+    def _toolbar() -> HTML:
+        import html as _h
+
+        try:
+            text = get_app().current_buffer.text
+        except Exception:
+            text = ""
+
+        def _bg_rail() -> str:
+            if not bg_phase:
+                return (
+                    '<span fg="#6b7280">Esc</span><span fg="#475569"> → </span>'
+                    '<span fg="#9ca3af">not cancel</span>'
+                    '<span fg="#475569"> · </span>'
+                    '<span fg="#6b7280">⌃C</span>'
+                    '<span fg="#475569"> / </span>'
+                    '<span fg="#9ca3af">Ctrl+C</span>'
+                    '<span fg="#475569"> mid-run</span>'
+                )
+            t0 = bg_start_mono[0]
+            elapsed = _format_elapsed(time.monotonic() - t0) if t0 is not None else "—"
+            phase_h = _h.escape(bg_phase)
+            tok = token_counter.fmt()
+            tok_seg = f'<span fg="#a5b4fc"> {_h.escape(tok)}</span>' if tok else ""
+            hint = bg_status_line[0]
+            hint_seg = ""
+            if hint:
+                one = hint.replace("\n", " ").strip()
+                short = one[:72] + ("…" if len(one) > 72 else "")
+                hint_seg = f'<span fg="#64748b"> · </span><span fg="#94a3b8">{_h.escape(short)}</span>'
+            core = (
+                f'<b bg="#312e81" fg="#e0e7ff"> bg:{phase_h} </b>'
+                f'<span fg="#94a3b8"> ⏱ {_h.escape(elapsed)}</span>{tok_seg}{hint_seg}'
+            )
+            tail = (
+                '<span fg="#475569">  ·  </span>'
+                '<span fg="#6b7280">Esc</span><span fg="#475569"> → </span>'
+                '<span fg="#9ca3af">not cancel</span>'
+                '<span fg="#475569"> · </span>'
+                '<span fg="#6b7280">⌃C</span>'
+                '<span fg="#475569"> / </span>'
+                '<span fg="#9ca3af">Ctrl+C</span>'
+            )
+            return core + tail
+
+        rail = _bg_rail()
+        if text.startswith("!"):
+            preview = _h.escape(text[1:45]) or "type a command…"
+            return HTML(
+                f'<b bg="#14532d" fg="#86efac"> $ SHELL </b>'
+                f'  <ansi fg="ansibrightgreen">{preview}</ansi>'
+                f'  <span fg="#4b5563">  Enter to run · ⌃C / Ctrl+C to cancel</span>'
+                f'  <span fg="#475569"> · </span>{rail}'
+            )
+        if text == "?":
+            return HTML(
+                '<b bg="#1e1b4b" fg="#a78bfa"> ? HELP </b>'
+                '  <span fg="#6b7280">Show all commands and shortcuts</span>'
+                f'  <span fg="#475569"> · </span>{rail}'
+            )
+        if text.startswith("/"):
+            return HTML(
+                '<b bg="#1a0a2e" fg="#fbbf24"> / CMD </b>'
+                '  <span fg="#6b7280">Agent command · Tab to autocomplete</span>'
+                f'  <span fg="#475569"> · </span>{rail}'
+            )
+        return HTML(
+            '<span fg="#374151">  ? help  ·  !cmd shell  ·  /command or chat</span>'
+            f'  <span fg="#475569">·</span> {rail}'
+        )
+
+    esc_kb = KeyBindings()
+    _esc_hint_last = [0.0]
+
+    @esc_kb.add(Keys.Escape, eager=True)
+    def _esc_notice(_event) -> None:
+        if not _processing[0]:
+            return
+        now = time.monotonic()
+        if now - _esc_hint_last[0] < 2.0:
+            return
+        _esc_hint_last[0] = now
+        console.print(
+            "\n[dim]Esc does not stop the model or end the wait. "
+            "Press [bold]Ctrl+C[/bold] ([bold]⌃C[/bold] on Mac — the [bold]⌃[/bold] Control key, "
+            "not [bold]⌘[/bold] Command). Then [bold]/stop[/bold] to cancel work or [bold]/exit[/bold] to quit.[/dim]"
+        )
+
     history_path = WORKSPACE / ".history" / "cli_history"
     history_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -1041,7 +1273,70 @@ async def run_interactive(config: Config) -> None:
         complete_while_typing=True,
         style=prompt_style,
         multiline=False,
+        key_bindings=esc_kb,
     )
+
+    async def _prompt_cli_session_pick(rows: list[dict[str, Any]]) -> tuple[str | None, bool]:
+        """Return (session_key, cancelled). cancelled=True means user aborted (no error)."""
+        _pick_cancel = frozenset(
+            {"q", "quit", "cancel", "abort", "n", "no", "back", "exit", "esc"}
+        )
+        try:
+            raw = (
+                await session.prompt_async(
+                    HTML(
+                        "<span fg='#94a3b8'>Row #</span> "
+                        "<span fg='#64748b'>(Enter = 1 · type </span><b>cancel</b><span fg='#64748b'> or </span>"
+                        "<b>q</b><span fg='#64748b'> to abort)</span> "
+                        "<b fg='#fbbf24'>›</b> "
+                    )
+                )
+            ).strip()
+        except KeyboardInterrupt:
+            return None, True
+        if raw.lower() in _pick_cancel:
+            return None, True
+        if not raw:
+            return resolve_session_pick("1", rows), False
+        return resolve_session_pick(raw, rows), False
+
+    async def _pick_cli_session_for_resume(resume_arg: str) -> bool:
+        rows = merge_cli_session_rows(
+            session_manager.list_sessions(), active_key=active_cli_session_key[0]
+        )
+        arg = resume_arg.strip()
+        if arg:
+            key = resolve_session_pick(arg, rows)
+            if key is None:
+                console.print(
+                    "[red]Invalid pick: use a row number 1…n from the table, or a full key (e.g. cli:direct).[/red]"
+                )
+                return False
+        else:
+            console.print(
+                "[dim]CLI conversations (most recently touched first). "
+                "Hackathon pipeline artifacts stay shared under[/dim] [bold]workspace/hackathon/[/bold][dim].[/dim]"
+            )
+            console.print(
+                "[dim]Row 1 is usually this run’s [bold]new thread[/bold] until you pick an older key; "
+                "plain chat uses that new thread automatically (Claude Code–style).[/dim]"
+            )
+            _print_cli_conversations_table(
+                rows, active_cli_session_key[0], title="CLI conversations"
+            )
+            key, cancelled = await _prompt_cli_session_pick(rows)
+            if cancelled:
+                console.print(
+                    "[dim]Cancelled — conversation unchanged; pipeline resume not started.[/dim]\n"
+                )
+                return False
+            if key is None:
+                console.print("[red]Invalid row number.[/red]")
+                return False
+        active_cli_session_key[0] = key
+        session_manager.invalidate(key)
+        console.print(f"[dim]Conversation context →[/dim] [bold #7c3aed]{key}[/bold #7c3aed]\n")
+        return True
 
     _print_banner(config.agents.defaults.provider, config.agents.defaults.model)
 
@@ -1054,7 +1349,23 @@ async def run_interactive(config: Config) -> None:
     turn_saw_background_handoff = [False]
     turn_was_streamed = [False]  # whether any streaming token arrived this turn
     turn_streamed_text: list[str] = []  # accumulated streaming text for result
+    turn_activity: list[dict[str, Any]] = []  # tools / MCP / progress lines for Live strip
     turn_live: list[Live | None] = [None]  # reference to active Live context
+    turn_start_mono: list[float | None] = [None]  # monotonic start of current _send_and_wait turn
+    last_turn_elapsed_s = [0.0]  # wall duration of last completed turn (for footer)
+
+    def _print_turn_footer() -> None:
+        """Dim line: turn duration (if known) and cumulative session tokens."""
+        bits: list[str] = []
+        if last_turn_elapsed_s[0] > 0:
+            bits.append(f"⏱ {_format_elapsed(last_turn_elapsed_s[0])}")
+            last_turn_elapsed_s[0] = 0.0
+        tok = token_counter.fmt()
+        if tok:
+            bits.append(tok)
+        if bits:
+            console.print(f"  [dim]{'  ·  '.join(bits)}[/dim]")
+
     request_counter = count(1)
     active_request_id: str | None = None
     background_request_id: str | None = None
@@ -1077,18 +1388,71 @@ async def run_interactive(config: Config) -> None:
     def _advance_spinner():
         _spinner_idx[0] += 1
 
+    _ACTIVITY_CAP = 14
+
+    def _append_turn_activity(metadata: dict[str, Any], content: str | None) -> None:
+        raw = (content or "").strip().replace("\n", " ")
+        if not raw:
+            return
+        if len(raw) > 140:
+            raw = raw[:137] + "…"
+        turn_activity.append(
+            {
+                "tool_hint": bool(metadata.get("_tool_hint")),
+                "background": bool(metadata.get("_background_handoff")),
+                "text": raw,
+            }
+        )
+        while len(turn_activity) > _ACTIVITY_CAP:
+            turn_activity.pop(0)
+
+    def _live_activity_block() -> Any | None:
+        if not turn_activity:
+            return None
+        rows: list[Text] = []
+        for item in turn_activity:
+            line = Text()
+            if item.get("background"):
+                line.append("⎆ ", style=_LIVE_SEP)
+                line.append(item["text"], style=_LIVE_ACT_BG)
+            elif item.get("tool_hint"):
+                line.append("⚙ ", style=_LIVE_SIGMA_LBL)
+                line.append(item["text"], style=_LIVE_ACT_TOOL)
+            else:
+                line.append("↳ ", style=_LIVE_LBL)
+                line.append(item["text"], style=_LIVE_ACT_PROG)
+            rows.append(line)
+        return Group(*rows)
+
     def _build_live_renderable() -> Any:
         if turn_streamed_text:
             body = "".join(turn_streamed_text)
             nchars = len(body)
-            foot = token_counter.fmt_rich_live(stream_chars=nchars)
-            if not foot.plain:
-                return Markdown(body)
-            return Group(Markdown(body), Align.right(foot))
-        return _OxClawWaitLine(_spinner_verbs, _spinner_idx, token_counter, turn_streamed_text)
+            foot = token_counter.fmt_rich_live(
+                stream_chars=nchars,
+                turn_start_mono=turn_start_mono,
+            )
+            body_r = Styled(Markdown(body), style=_LIVE_STREAM_MD)
+            act = _live_activity_block()
+            parts: list[Any] = []
+            if act is not None:
+                parts.append(Padding(act, (0, 0, 1, 0)))
+            parts.append(body_r)
+            if foot.plain != "":
+                parts.append(Rule(characters="·", style=_LIVE_RULE))
+                parts.append(Align.right(foot))
+            if len(parts) == 1:
+                return parts[0]
+            return Group(*parts)
+        wait = _OxClawWaitLine(
+            _spinner_verbs, _spinner_idx, token_counter, turn_streamed_text, turn_start_mono
+        )
+        act = _live_activity_block()
+        if act is None:
+            return wait
+        return Group(Padding(act, (0, 0, 1, 0)), wait)
 
     # ── Ctrl+C handling — never exits, only interrupts the current task ────────
-    _processing = [False]   # mutable so the signal handler closure can read it
     _loop = asyncio.get_running_loop()
 
     def _on_sigint(sig, frame):
@@ -1098,7 +1462,10 @@ async def run_interactive(config: Config) -> None:
             # promote the running phase to a background handoff. Use /stop to cancel.
             _loop.call_soon_threadsafe(turn_done.set)
             console.print(
-                "\n[yellow]⏹  Interrupted.[/yellow]"
+                "\n[yellow]⏹  Interrupted[/yellow]"
+                "  [dim]([/dim][bold #fbbf24]Ctrl+C[/bold #fbbf24][dim] / Mac [/dim]"
+                "[bold #fbbf24]⌃C[/bold #fbbf24][dim] — not [/dim][bold #fbbf24]Esc[/bold #fbbf24]"
+                "[dim], which does not stop the run).[/dim]\n"
                 "  [dim]Type[/dim] [bold #fbbf24]/stop[/bold #fbbf24]"
                 " [dim]to cancel the agent task, or[/dim]"
                 " [bold #fbbf24]/exit[/bold #fbbf24] [dim]to quit.[/dim]"
@@ -1112,7 +1479,7 @@ async def run_interactive(config: Config) -> None:
 
     async def _consume():
         """Drain the outbound bus. Releases prompt as soon as agent replies."""
-        nonlocal active_request_id, background_request_id, background_deadline, bg_phase
+        nonlocal active_request_id, background_request_id, background_deadline
         while True:
             try:
                 msg = await asyncio.wait_for(bus.consume_outbound(), timeout=1.0)
@@ -1145,13 +1512,20 @@ async def run_interactive(config: Config) -> None:
                     continue
                 if scope in {"background", "notification"}:
                     if metadata.get("_progress") and msg.content:
-                        console.print(f"  [dim]↳ {msg.content}[/dim]")
+                        if scope == "background":
+                            bg_status_line[0] = (msg.content or "").strip().replace("\n", " ")[:200]
+                            try:
+                                get_app().invalidate()
+                            except Exception:
+                                pass
+                        else:
+                            console.print(f"  [dim]↳ {msg.content}[/dim]")
                     elif msg.content:
                         subagent_phase = metadata.get("_phase")
                         subagent_status = metadata.get("_subagent_status")
                         if scope == "background" and subagent_phase == bg_phase and subagent_status == "ok":
                             state_machine.checkpoint(subagent_phase, "done")
-                            bg_phase = None
+                            _set_bg_phase(None)
                             background_request_id = None
                             background_deadline = None
                         elif scope == "background" and subagent_phase == bg_phase and subagent_status == "error":
@@ -1160,7 +1534,7 @@ async def run_interactive(config: Config) -> None:
                                 "failed",
                                 last_error=metadata.get("_subagent_error") or "Background task reported failure",
                             )
-                            bg_phase = None
+                            _set_bg_phase(None)
                             background_request_id = None
                             background_deadline = None
                         console.print()
@@ -1178,9 +1552,8 @@ async def run_interactive(config: Config) -> None:
                     if metadata.get("_streaming"):
                         turn_was_streamed[0] = True
                         turn_streamed_text.append(msg.content)
-                    elif turn_live[0] is not None:
-                        _advance_spinner()
-                    # Update Live display with current state
+                    else:
+                        _append_turn_activity(metadata, msg.content or "")
                     if turn_live[0] is not None:
                         turn_live[0].update(_build_live_renderable())
                 elif not turn_done.is_set():
@@ -1202,7 +1575,7 @@ async def run_interactive(config: Config) -> None:
 
     async def _monitor_background() -> None:
         """Poll for background phase output every 4 s; notify user on completion."""
-        nonlocal bg_phase, background_request_id, background_deadline
+        nonlocal background_request_id, background_deadline
         while True:
             await asyncio.sleep(4)
             if not bg_phase:
@@ -1210,7 +1583,7 @@ async def run_interactive(config: Config) -> None:
             if state_machine.phase_is_complete(bg_phase):
                 state_machine.checkpoint(bg_phase, "done")
                 finished = bg_phase
-                bg_phase = None
+                _set_bg_phase(None)
                 background_request_id = None
                 background_deadline = None
                 console.print(
@@ -1225,7 +1598,7 @@ async def run_interactive(config: Config) -> None:
                     last_error="Timed out waiting for background phase completion",
                 )
                 failed_phase = bg_phase
-                bg_phase = None
+                _set_bg_phase(None)
                 background_request_id = None
                 background_deadline = None
                 console.print(
@@ -1234,6 +1607,17 @@ async def run_interactive(config: Config) -> None:
 
     consume_task = asyncio.create_task(_consume())
     monitor_task = asyncio.create_task(_monitor_background())
+
+    async def _toolbar_refresh_loop() -> None:
+        while True:
+            await asyncio.sleep(0.35)
+            if bg_phase:
+                try:
+                    get_app().invalidate()
+                except Exception:
+                    pass
+
+    toolbar_refresh_task = asyncio.create_task(_toolbar_refresh_loop())
 
     async def _send_and_wait(
         text: str,
@@ -1248,34 +1632,42 @@ async def run_interactive(config: Config) -> None:
         turn_saw_background_handoff[0] = False
         turn_was_streamed[0] = False
         turn_streamed_text.clear()
+        turn_activity.clear()
+        turn_start_mono[0] = time.monotonic()
         active_request_id = _turn_request_id(next(request_counter))
         await bus.publish_inbound(InboundMessage(
             channel="cli",
             sender_id="user",
             chat_id="direct",
             content=text,
+            session_key_override=active_cli_session_key[0],
             metadata={
                 **({"phase": phase} if phase else {}),
                 "request_id": active_request_id,
             },
         ))
 
-        # Background task to rotate spinner verbs by advancing the index
-        async def _spin_timer():
+        # Refresh Live on a timer so elapsed clock and Braille stay smooth between bus events.
+        async def _live_refresh_loop():
+            verb_accum = 0.0
             while not turn_done.is_set():
-                await asyncio.sleep(2.0)
-                _advance_spinner()
-                if turn_live[0] is not None and not turn_was_streamed[0]:
-                    turn_live[0].update(_build_live_renderable())
+                await asyncio.sleep(0.25)
+                live = turn_live[0]
+                if live is not None:
+                    live.update(_build_live_renderable())
+                verb_accum += 0.25
+                if verb_accum >= 2.0 and not turn_was_streamed[0]:
+                    verb_accum = 0.0
+                    _advance_spinner()
 
-        spin_task = asyncio.create_task(_spin_timer())
+        spin_task = asyncio.create_task(_live_refresh_loop())
 
         try:
             with Live(
                 _build_live_renderable(),
                 console=console,
                 vertical_overflow="visible",
-                refresh_per_second=10,
+                refresh_per_second=16,
                 transient=True,
             ) as live:
                 turn_live[0] = live
@@ -1294,6 +1686,9 @@ async def run_interactive(config: Config) -> None:
             turn_live[0] = None
             spin_task.cancel()
             _processing[0] = False
+            if turn_start_mono[0] is not None:
+                last_turn_elapsed_s[0] = max(0.0, time.monotonic() - turn_start_mono[0])
+            turn_start_mono[0] = None
 
         # Live was transient — nothing left on screen. Callers render the assistant
         # reply (header + Markdown + token footer) once after return.
@@ -1310,7 +1705,7 @@ async def run_interactive(config: Config) -> None:
         return result
 
     async def _confirm_stop_running_phase() -> bool:
-        nonlocal active_phase, active_trace_id, bg_phase, background_request_id, background_deadline
+        nonlocal active_phase, active_trace_id, background_request_id, background_deadline
         target_phase = active_phase or bg_phase
         if not target_phase:
             return True
@@ -1330,7 +1725,7 @@ async def run_interactive(config: Config) -> None:
             state_machine.checkpoint(target_phase, "done")
             active_phase = None
             active_trace_id = None
-            bg_phase = None
+            _set_bg_phase(None)
             background_request_id = None
             background_deadline = None
             console.print(
@@ -1350,7 +1745,7 @@ async def run_interactive(config: Config) -> None:
             state_machine.checkpoint(target_phase, "cancelled", last_error=reason)
         active_phase = None
         active_trace_id = None
-        bg_phase = None
+        _set_bg_phase(None)
         background_request_id = None
         background_deadline = None
         if response.response:
@@ -1366,7 +1761,9 @@ async def run_interactive(config: Config) -> None:
             except KeyboardInterrupt:
                 # Ctrl+C at idle prompt — never exit, just show hint
                 console.print(
-                    "[dim]Use[/dim] [bold #fbbf24]/exit[/bold #fbbf24] [dim]to quit.[/dim]"
+                    "[dim]Use[/dim] [bold #fbbf24]/exit[/bold #fbbf24] [dim]to quit."
+                    "  During a run use[/dim] [bold #fbbf24]⌃C[/bold #fbbf24][dim]/[/dim][bold #fbbf24]Ctrl+C[/bold #fbbf24]"
+                    " [dim]then[/dim] [bold #fbbf24]/stop[/bold #fbbf24][dim].[/dim]"
                 )
                 continue
             except EOFError:
@@ -1421,9 +1818,14 @@ async def run_interactive(config: Config) -> None:
 
                 if lower == "/status":
                     _show_pipeline_status(state_store)
+                    console.print(
+                        f"  [dim]Active CLI conversation[/dim] [bold #7c3aed]{active_cli_session_key[0]}[/bold #7c3aed]"
+                    )
                     tok = token_counter.fmt()
                     if tok:
                         console.print(f"  [dim]Tokens this session  {tok}[/dim]\n")
+                    else:
+                        console.print()
                     continue
 
                 if lower == "/stop":
@@ -1479,7 +1881,7 @@ async def run_interactive(config: Config) -> None:
                     active_trace_id = f"cli-{int(time.time())}-{redo_route.phase}"
                     state_machine.checkpoint(redo_route.phase, "running", active_task=active_trace_id)
                     redo_envelope = Envelope.from_command(
-                        session_id="cli:direct",
+                        session_id=active_cli_session_key[0],
                         phase=redo_route.phase,
                         agent_id="orchestrator",
                         trace_id=active_trace_id,
@@ -1506,7 +1908,7 @@ async def run_interactive(config: Config) -> None:
                         state_machine=state_machine,
                     )
                     _restore_agent_params(agent, param_snapshot)
-                    bg_phase = active_phase if handed_off else None
+                    _set_bg_phase(active_phase if handed_off else None)
                     background_deadline = time.time() + redo_timeout if handed_off else None
                     active_phase = None
                     active_trace_id = None
@@ -1514,9 +1916,7 @@ async def run_interactive(config: Config) -> None:
                         console.print()
                         console.print(_oxclaw_header_text())
                         console.print(Markdown(response.response))
-                        tok = token_counter.fmt()
-                        if tok:
-                            console.print(f"  [dim]{tok}[/dim]")
+                        _print_turn_footer()
                         console.print()
                     continue
 
@@ -1542,24 +1942,131 @@ async def run_interactive(config: Config) -> None:
                     removed = _reset_hackathon_outputs() + _reset_workspace_runtime_outputs()
                     active_phase = None
                     active_trace_id = None
-                    bg_phase = None
+                    _set_bg_phase(None)
                     background_request_id = None
                     background_deadline = None
+                    active_cli_session_key[0] = fresh_cli_run_session_key()
                     console.print(f"[green]✓[/green]  {response.response.strip()}")
+                    console.print(
+                        f"[dim]New CLI conversation thread[/dim] [bold #7c3aed]{active_cli_session_key[0]}[/bold #7c3aed]"
+                    )
                     if removed:
                         console.print(f"[dim]Cleared hackathon outputs:[/dim] {len(removed)} item(s)")
                     console.print()
                     continue
 
+                if lower == "/sessions":
+                    parts_ls = cmd.split(maxsplit=1)
+                    arg_ls = parts_ls[1].strip() if len(parts_ls) > 1 else ""
+                    rows_ls = merge_cli_session_rows(
+                        session_manager.list_sessions(), active_key=active_cli_session_key[0]
+                    )
+                    if arg_ls:
+                        key_ls = resolve_session_pick(arg_ls, rows_ls)
+                        if key_ls is None:
+                            console.print("[red]Invalid row number.[/red]")
+                            continue
+                        active_cli_session_key[0] = key_ls
+                        session_manager.invalidate(key_ls)
+                        console.print(
+                            f"[dim]Active conversation[/dim] [bold #7c3aed]{key_ls}[/bold #7c3aed]\n"
+                        )
+                    else:
+                        _print_cli_conversations_table(
+                            rows_ls, active_cli_session_key[0], title="CLI conversations"
+                        )
+                    continue
+
+                if lower == "/session":
+                    raw_cmd = cmd.strip()
+                    rest_se = raw_cmd[8:].strip() if raw_cmd.lower().startswith("/session") else ""
+                    rows_se = merge_cli_session_rows(
+                        session_manager.list_sessions(), active_key=active_cli_session_key[0]
+                    )
+                    if rest_se.lower().startswith("rename"):
+                        rbody = rest_se[6:].strip()
+                        pair = rbody.split(maxsplit=1)
+                        if len(pair) < 2:
+                            console.print(
+                                "[dim]Usage:[/dim] /session rename <row# | current | cli:…> <new title>\n"
+                                "  [dim]Examples:[/dim]  [bold #fbbf24]/session rename 2 UKFinnovator notes[/bold #fbbf24]\n"
+                                "            [bold #fbbf24]/session rename current Post-mortem[/bold #fbbf24]"
+                            )
+                            continue
+                        target_tok, new_title = pair[0], pair[1]
+                        tlow = target_tok.lower()
+                        if tlow in ("current", ".", "*"):
+                            dkey = active_cli_session_key[0]
+                        elif target_tok.isdigit():
+                            pick = resolve_session_pick(target_tok, rows_se)
+                            if pick is None:
+                                console.print("[red]Invalid row number.[/red]")
+                                continue
+                            dkey = pick
+                        else:
+                            pick = resolve_session_pick(target_tok, rows_se)
+                            dkey = pick if pick is not None else cli_talk_key(target_tok)
+                        session_manager.set_session_display_name(dkey, new_title)
+                        session_manager.invalidate(dkey)
+                        console.print(
+                            f"[dim]Renamed[/dim] [bold #7c3aed]{dkey}[/bold #7c3aed]"
+                            f" [dim]→[/dim] [bold]{new_title.strip()[:200]}[/bold]\n"
+                        )
+                        continue
+                    slug_se = rest_se
+                    if not slug_se:
+                        _print_cli_conversations_table(
+                            rows_se, active_cli_session_key[0], title="CLI conversations"
+                        )
+                        key_se, cancelled = await _prompt_cli_session_pick(rows_se)
+                        if cancelled:
+                            console.print(
+                                "[dim]Cancelled — active conversation unchanged.[/dim]\n"
+                            )
+                            continue
+                        if key_se is None:
+                            console.print("[red]Invalid row number.[/red]")
+                            continue
+                    else:
+                        key_se = cli_talk_key(slug_se)
+                        # Seed a default display name from the user's slug (not the normalized key).
+                        sess0 = session_manager.get_or_create(key_se)
+                        if slug_se and not str(sess0.metadata.get("display_name") or "").strip():
+                            session_manager.set_session_display_name(key_se, slug_se.strip()[:200])
+                    active_cli_session_key[0] = key_se
+                    session_manager.invalidate(key_se)
+                    console.print(f"[dim]Conversation context →[/dim] [bold #7c3aed]{key_se}[/bold #7c3aed]\n")
+                    continue
+
                 if lower == "/resume":
+                    parts_re = cmd.split(maxsplit=1)
+                    resume_arg = parts_re[1].strip() if len(parts_re) > 1 else ""
                     decision = session_control.get_resume_decision()
                     if not decision.command:
-                        console.print(f"[green]✓[/green] {decision.reason}")
+                        if resume_arg:
+                            rows = merge_cli_session_rows(
+                                session_manager.list_sessions(),
+                                active_key=active_cli_session_key[0],
+                            )
+                            key = resolve_session_pick(resume_arg, rows)
+                            if key is None:
+                                console.print("[red]Invalid row number or session key.[/red]")
+                            else:
+                                active_cli_session_key[0] = key
+                                session_manager.invalidate(key)
+                                console.print(
+                                    f"[dim]{decision.reason}[/dim]  "
+                                    f"[dim]Switched conversation context →[/dim] [bold #7c3aed]{key}[/bold #7c3aed]\n"
+                                )
+                        else:
+                            console.print(f"[green]✓[/green] {decision.reason}")
                         continue
                     if bg_phase and decision.phase == bg_phase:
                         console.print(
                             f"[dim]Phase [#7c3aed]{bg_phase}[/#7c3aed] is already running in the background.[/dim]"
                         )
+                        continue
+                    if not await _pick_cli_session_for_resume(resume_arg):
                         continue
                     console.print(f"[dim]{decision.reason}[/dim]")
                     cmd = decision.command
@@ -1585,7 +2092,7 @@ async def run_interactive(config: Config) -> None:
                     active_trace_id = f"cli-{int(time.time())}-{route.phase}"
                     state_machine.checkpoint(route.phase, "running", active_task=active_trace_id)
                     envelope = Envelope.from_command(
-                        session_id="cli:direct",
+                        session_id=active_cli_session_key[0],
                         phase=route.phase,
                         agent_id="orchestrator",
                         trace_id=active_trace_id,
@@ -1612,7 +2119,7 @@ async def run_interactive(config: Config) -> None:
                         state_machine=state_machine,
                     )
                     _restore_agent_params(agent, param_snapshot)
-                    bg_phase = active_phase if handed_off else None
+                    _set_bg_phase(active_phase if handed_off else None)
                     background_deadline = time.time() + timeout_s if handed_off else None
                     active_phase = None
                     active_trace_id = None
@@ -1620,9 +2127,7 @@ async def run_interactive(config: Config) -> None:
                         console.print()
                         console.print(_oxclaw_header_text())
                         console.print(Markdown(response.response))
-                        tok = token_counter.fmt()
-                        if tok:
-                            console.print(f"  [dim]{tok}[/dim]")
+                        _print_turn_footer()
                         console.print()
                     continue
 
@@ -1674,7 +2179,7 @@ async def run_interactive(config: Config) -> None:
                 state_machine.checkpoint(route.phase, "running", active_task=active_trace_id)
 
                 envelope = Envelope.from_command(
-                    session_id="cli:direct",
+                    session_id=active_cli_session_key[0],
                     phase=route.phase,
                     agent_id="orchestrator",
                     trace_id=active_trace_id,
@@ -1701,7 +2206,7 @@ async def run_interactive(config: Config) -> None:
                     state_machine=state_machine,
                 )
                 _restore_agent_params(agent, param_snapshot)
-                bg_phase = active_phase if handed_off else None
+                _set_bg_phase(active_phase if handed_off else None)
                 background_deadline = time.time() + timeout_s if handed_off else None
                 active_phase = None
                 active_trace_id = None
@@ -1712,16 +2217,21 @@ async def run_interactive(config: Config) -> None:
                 console.print()
                 console.print(_oxclaw_header_text())
                 console.print(Markdown(response.response))
-                tok = token_counter.fmt()
-                if tok:
-                    console.print(f"  [dim]{tok}[/dim]")
+                _print_turn_footer()
                 console.print()
 
     finally:
         agent.stop()
         consume_task.cancel()
         monitor_task.cancel()
-        await asyncio.gather(bus_task, consume_task, monitor_task, return_exceptions=True)
+        toolbar_refresh_task.cancel()
+        await asyncio.gather(
+            bus_task,
+            consume_task,
+            monitor_task,
+            toolbar_refresh_task,
+            return_exceptions=True,
+        )
         await agent.close_mcp()
 
 
