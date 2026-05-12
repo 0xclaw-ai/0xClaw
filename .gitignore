@@ -17,7 +17,6 @@ workspace/hackathon/progress.md
 workspace/hackathon/research_summary.md
 workspace/hackathon/project/
 workspace/hackathon/submission/
-tests/
 
 # Agent runtime state
 workspace/.cron/
