@@ -1,14 +1,14 @@
-"""CLI commands for nanobot."""
+"""CLI commands for the 0xClaw runtime (gateway and auxiliary entrypoints)."""
 
 import asyncio
 import os
 import select
 import signal
 import sys
+from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 
 import typer
-from nanobot import __logo__, __version__
 from prompt_toolkit import PromptSession
 from prompt_toolkit.formatted_text import HTML
 from prompt_toolkit.history import FileHistory
@@ -20,9 +20,16 @@ from rich.text import Text
 from runtime.config.schema import Config
 from runtime.utils.helpers import sync_workspace_templates
 
+try:
+    __version__ = version("0xclaw")
+except PackageNotFoundError:
+    __version__ = "0.1.1"
+
+__logo__ = "🦀"
+
 app = typer.Typer(
-    name="nanobot",
-    help=f"{__logo__} nanobot - Personal AI Assistant",
+    name="0xclaw-runtime",
+    help=f"{__logo__} 0xClaw runtime CLI (gateway and helper commands)",
     no_args_is_help=True,
 )
 
@@ -86,7 +93,7 @@ def _init_prompt_session() -> None:
     except Exception:
         pass
 
-    history_file = Path.home() / ".nanobot" / "history" / "cli_history"
+    history_file = Path.home() / ".0xclaw" / "history" / "cli_history"
     history_file.parent.mkdir(parents=True, exist_ok=True)
 
     _PROMPT_SESSION = PromptSession(
@@ -101,7 +108,7 @@ def _print_agent_response(response: str, render_markdown: bool) -> None:
     content = response or ""
     body = Markdown(content) if render_markdown else Text(content)
     console.print()
-    console.print(f"[cyan]{__logo__} nanobot[/cyan]")
+    console.print(f"[cyan]{__logo__} 0xClaw[/cyan]")
     console.print(body)
     console.print()
 
@@ -133,7 +140,7 @@ async def _read_interactive_input_async() -> str:
 
 def version_callback(value: bool):
     if value:
-        console.print(f"{__logo__} nanobot v{__version__}")
+        console.print(f"{__logo__} 0xClaw v{__version__}")
         raise typer.Exit()
 
 
@@ -143,7 +150,7 @@ def main(
         None, "--version", "-v", callback=version_callback, is_eager=True
     ),
 ):
-    """nanobot - Personal AI Assistant."""
+    """0xClaw runtime CLI."""
     pass
 
 
@@ -154,7 +161,12 @@ def main(
 
 @app.command()
 def onboard():
-    """Initialize nanobot configuration and workspace."""
+    """Initialize ~/.0xclaw config + workspace (runtime / gateway helper layout).
+
+    Note: the main ``0xclaw`` hackathon CLI loads ``<repo>/0xclaw/config/config.json``
+    and ``<repo>/workspace`` instead; use this command only when you want a
+    standalone home-directory layout.
+    """
     from runtime.config.loader import get_config_path, load_config, save_config
     from runtime.config.schema import Config
     from runtime.utils.helpers import get_workspace_path
@@ -186,12 +198,15 @@ def onboard():
 
     sync_workspace_templates(workspace)
 
-    console.print(f"\n{__logo__} nanobot is ready!")
+    console.print(f"\n{__logo__} 0xClaw is ready!")
     console.print("\nNext steps:")
-    console.print("  1. Add your API key to [cyan]~/.nanobot/config.json[/cyan]")
+    console.print("  1. Add your API key to [cyan]~/.0xclaw/config.json[/cyan]")
+    console.print(
+        "     [dim](Hackathon CLI uses[/dim] [cyan]<repo>/0xclaw/config/config.json[/cyan][dim] instead.)[/dim]"
+    )
     console.print("     Get one at: https://openrouter.ai/keys")
-    console.print("  2. Chat: [cyan]nanobot agent -m \"Hello!\"[/cyan]")
-    console.print("\n[dim]Want Telegram/WhatsApp? See: https://github.com/HKUDS/nanobot#-chat-apps[/dim]")
+    console.print("  2. Chat: [cyan]python -m runtime agent -m \"Hello!\"[/cyan]")
+    console.print("\n[dim]Want Telegram/WhatsApp? See the 0xClaw README.[/dim]")
 
 
 
@@ -223,7 +238,10 @@ def _make_provider(config: Config):
     spec = find_by_name(provider_name)
     if not model.startswith("bedrock/") and not (p and p.api_key) and not (spec and spec.is_oauth):
         console.print("[red]Error: No API key configured.[/red]")
-        console.print("Set one in ~/.nanobot/config.json under providers section")
+        console.print(
+            "Set one under providers in ~/.0xclaw/config.json "
+            "(runtime) or <repo>/0xclaw/config/config.json (0xclaw CLI)."
+        )
         raise typer.Exit(1)
 
     return LiteLLMProvider(
@@ -245,7 +263,7 @@ def gateway(
     port: int = typer.Option(18790, "--port", "-p", help="Gateway port"),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Verbose output"),
 ):
-    """Start the nanobot gateway."""
+    """Start the 0xClaw gateway."""
     from runtime.agent.loop import AgentLoop
     from runtime.bus.queue import MessageBus
     from runtime.channels.manager import ChannelManager
@@ -259,7 +277,7 @@ def gateway(
         import logging
         logging.basicConfig(level=logging.DEBUG)
 
-    console.print(f"{__logo__} Starting nanobot gateway on port {port}...")
+    console.print(f"{__logo__} Starting 0xClaw gateway on port {port}...")
 
     config = load_config()
     sync_workspace_templates(config.workspace_path)
@@ -432,7 +450,7 @@ def agent(
     message: str = typer.Option(None, "--message", "-m", help="Message to send to the agent"),
     session_id: str = typer.Option("cli:direct", "--session", "-s", help="Session ID"),
     markdown: bool = typer.Option(True, "--markdown/--no-markdown", help="Render assistant output as Markdown"),
-    logs: bool = typer.Option(False, "--logs/--no-logs", help="Show nanobot runtime logs during chat"),
+    logs: bool = typer.Option(False, "--logs/--no-logs", help="Show 0xClaw runtime logs during chat"),
 ):
     """Interact with the agent directly."""
     from loguru import logger
@@ -452,9 +470,9 @@ def agent(
     cron = CronService(cron_store_path)
 
     if logs:
-        logger.enable("nanobot")
+        logger.enable("runtime")
     else:
-        logger.disable("nanobot")
+        logger.disable("runtime")
 
     agent_loop = AgentLoop(
         bus=bus,
@@ -722,7 +740,7 @@ def _get_bridge_dir() -> Path:
     import subprocess
 
     # User's bridge location
-    user_bridge = Path.home() / ".nanobot" / "bridge"
+    user_bridge = Path.home() / ".0xclaw" / "bridge"
 
     # Check if already built
     if (user_bridge / "dist" / "index.js").exists():
@@ -734,7 +752,7 @@ def _get_bridge_dir() -> Path:
         raise typer.Exit(1)
 
     # Find source bridge: first check package data, then source dir
-    pkg_bridge = Path(__file__).parent.parent / "bridge"  # nanobot/bridge (installed)
+    pkg_bridge = Path(__file__).parent.parent / "bridge"  # runtime/../bridge when bundled
     src_bridge = Path(__file__).parent.parent.parent / "bridge"  # repo root/bridge (dev)
 
     source = None
@@ -745,7 +763,7 @@ def _get_bridge_dir() -> Path:
 
     if not source:
         console.print("[red]Bridge source not found.[/red]")
-        console.print("Try reinstalling: pip install --force-reinstall nanobot")
+        console.print("Try reinstalling: pip install --force-reinstall 0xclaw")
         raise typer.Exit(1)
 
     console.print(f"{__logo__} Setting up bridge...")
@@ -962,7 +980,7 @@ def cron_run(
     from runtime.config.loader import get_data_dir, load_config
     from runtime.cron.service import CronService
     from runtime.cron.types import CronJob
-    logger.disable("nanobot")
+    logger.disable("runtime")
 
     config = load_config()
     provider = _make_provider(config)
@@ -1021,14 +1039,14 @@ def cron_run(
 
 @app.command()
 def status():
-    """Show nanobot status."""
+    """Show 0xClaw runtime status."""
     from runtime.config.loader import get_config_path, load_config
 
     config_path = get_config_path()
     config = load_config()
     workspace = config.workspace_path
 
-    console.print(f"{__logo__} nanobot Status\n")
+    console.print(f"{__logo__} 0xClaw Status\n")
 
     console.print(f"Config: {config_path} {'[green]✓[/green]' if config_path.exists() else '[red]✗[/red]'}")
     console.print(f"Workspace: {workspace} {'[green]✓[/green]' if workspace.exists() else '[red]✗[/red]'}")

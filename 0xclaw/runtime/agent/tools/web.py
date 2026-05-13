@@ -1,11 +1,12 @@
 """Web tools: web_search and web_fetch."""
 
 import html
+import ipaddress
 import json
 import os
 import re
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import urldefrag, urljoin, urlparse, urlunparse
 
 import httpx
 from loguru import logger
@@ -14,6 +15,14 @@ from runtime.agent.tools.base import Tool
 # Shared constants
 USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_7_2) AppleWebKit/537.36"
 MAX_REDIRECTS = 5  # Limit redirects to prevent DoS attacks
+
+# Hostnames that must never be fetched directly (cloud metadata, obvious local names).
+_BLOCKED_FETCH_HOSTNAMES: frozenset[str] = frozenset({
+    "metadata.google.internal",
+    "metadata",
+    "metadata.azure.com",
+    "instance-data.ec2.internal",
+})
 
 
 def _strip_tags(text: str) -> str:
@@ -30,17 +39,110 @@ def _normalize(text: str) -> str:
     return re.sub(r'\n{3,}', '\n\n', text).strip()
 
 
+def _blocked_fetch_host(hostname: str | None) -> str | None:
+    """Return a human-readable block reason, or None if the host is allowed.
+
+    Blocks literal loopback/private/link-local/reserved/multicast IPs and a few
+    well-known metadata hostnames. Public DNS names are not resolved here, so
+    this is a best-effort SSRF guard for direct-to-IP and obvious local URLs.
+    """
+    if not hostname:
+        return "Missing hostname"
+    h = hostname.lower().rstrip(".")
+    if h in _BLOCKED_FETCH_HOSTNAMES:
+        return f"Blocked hostname '{h}'"
+    if "%" in h:
+        h = h.split("%", 1)[0]
+    try:
+        ip = ipaddress.ip_address(h)
+    except ValueError:
+        return None
+    if ip.version == 4 and ip == ipaddress.IPv4Address("0.0.0.0"):
+        return "Blocked address 0.0.0.0"
+    if (
+        ip.is_private
+        or ip.is_loopback
+        or ip.is_link_local
+        or ip.is_reserved
+        or ip.is_multicast
+    ):
+        return f"Blocked non-public address {ip}"
+    return None
+
+
+def _canonical_redirect_url(url: str) -> str:
+    """Stable key for redirect-loop detection (scheme/host lowercased, no fragment)."""
+    base, _frag = urldefrag(url.strip())
+    p = urlparse(base)
+    path = p.path or "/"
+    return urlunparse((p.scheme.lower(), p.netloc.lower(), path, p.query, ""))
+
+
 def _validate_url(url: str) -> tuple[bool, str]:
-    """Validate URL: must be http(s) with valid domain."""
+    """Validate URL: must be http(s) with a fetchable public host (best-effort)."""
     try:
         p = urlparse(url)
         if p.scheme not in ('http', 'https'):
             return False, f"Only http/https allowed, got '{p.scheme or 'none'}'"
         if not p.netloc:
             return False, "Missing domain"
+        host_reason = _blocked_fetch_host(p.hostname)
+        if host_reason:
+            return False, host_reason
         return True, ""
     except Exception as e:
         return False, str(e)
+
+
+def _fetch_error_json(error: str, url: str) -> str:
+    """JSON error body for web_fetch (stable keys: error, url)."""
+    return json.dumps({"error": error, "url": url}, ensure_ascii=False)
+
+
+async def _fetch_with_redirect_guard(
+    client: httpx.AsyncClient,
+    start_url: str,
+    original_url: str,
+    max_attempts: int,
+) -> httpx.Response | str:
+    """Follow redirects manually with SSRF checks and a hard cap.
+
+    Returns the final ``httpx.Response`` on success, or a JSON error string
+    (same shape/messages as ``WebFetchTool.execute``) on validation / redirect
+    failures.
+    """
+    current = start_url
+    visited: set[str] = set()
+    r: httpx.Response | None = None
+    for _ in range(max_attempts):
+        sig = _canonical_redirect_url(current)
+        if sig in visited:
+            return _fetch_error_json("Redirect loop (revisited a previous URL)", current)
+        visited.add(sig)
+
+        is_valid, error_msg = _validate_url(current)
+        if not is_valid:
+            return _fetch_error_json(f"URL validation failed: {error_msg}", current)
+        r = await client.get(current, headers={"User-Agent": USER_AGENT})
+        if r.is_redirect:
+            loc = (r.headers.get("location") or "").strip()
+            if not loc:
+                return _fetch_error_json("Redirect response missing Location header", current)
+            next_url = urljoin(str(r.request.url), loc)
+            if _canonical_redirect_url(next_url) == sig:
+                return _fetch_error_json(
+                    "Redirect loop (Location resolves to same canonical URL)",
+                    current,
+                )
+            current = next_url
+            continue
+        break
+    else:
+        return _fetch_error_json(f"Too many redirects (>{MAX_REDIRECTS})", original_url)
+
+    if r is None:
+        return _fetch_error_json("No response received from server", original_url)
+    return r
 
 
 class WebSearchTool(Tool):
@@ -70,9 +172,11 @@ class WebSearchTool(Tool):
     async def execute(self, query: str, count: int | None = None, **kwargs: Any) -> str:
         if not self.api_key:
             return (
-                "Error: Brave Search API key not configured. Set it in "
-                "~/.nanobot/config.json under tools.web.search.apiKey "
-                "(or export BRAVE_API_KEY), then restart the gateway."
+                "Error: Brave Search API key not configured. Set it under "
+                "tools.web.search.apiKey in your agents config "
+                "(hackathon default: <repo>/0xclaw/config/config.json), "
+                "or in ~/.0xclaw/config.json for runtime-only / gateway installs, "
+                "or export BRAVE_API_KEY, then restart the gateway."
             )
 
         try:
@@ -128,19 +232,25 @@ class WebFetchTool(Tool):
         from readability import Document
 
         max_chars = maxChars or self.max_chars
-        is_valid, error_msg = _validate_url(url)
-        if not is_valid:
-            return json.dumps({"error": f"URL validation failed: {error_msg}", "url": url}, ensure_ascii=False)
 
         try:
             logger.debug("WebFetch: {}", "proxy enabled" if self.proxy else "direct connection")
+            max_attempts = MAX_REDIRECTS + 1  # initial GET + up to MAX_REDIRECTS redirects (httpx-compatible cap)
+
             async with httpx.AsyncClient(
-                follow_redirects=True,
-                max_redirects=MAX_REDIRECTS,
+                follow_redirects=False,
                 timeout=30.0,
                 proxy=self.proxy,
             ) as client:
-                r = await client.get(url, headers={"User-Agent": USER_AGENT})
+                fetched = await _fetch_with_redirect_guard(
+                    client,
+                    url.strip(),
+                    url,
+                    max_attempts,
+                )
+                if isinstance(fetched, str):
+                    return fetched
+                r = fetched
                 r.raise_for_status()
 
             ctype = r.headers.get("content-type", "")
@@ -156,16 +266,27 @@ class WebFetchTool(Tool):
                 text, extractor = r.text, "raw"
 
             truncated = len(text) > max_chars
-            if truncated: text = text[:max_chars]
+            if truncated:
+                text = text[:max_chars]
 
-            return json.dumps({"url": url, "finalUrl": str(r.url), "status": r.status_code,
-                              "extractor": extractor, "truncated": truncated, "length": len(text), "text": text}, ensure_ascii=False)
+            return json.dumps(
+                {
+                    "url": url,
+                    "finalUrl": str(r.url),
+                    "status": r.status_code,
+                    "extractor": extractor,
+                    "truncated": truncated,
+                    "length": len(text),
+                    "text": text,
+                },
+                ensure_ascii=False,
+            )
         except httpx.ProxyError as e:
             logger.error("WebFetch proxy error for {}: {}", url, e)
-            return json.dumps({"error": f"Proxy error: {e}", "url": url}, ensure_ascii=False)
+            return _fetch_error_json(f"Proxy error: {e}", url)
         except Exception as e:
             logger.error("WebFetch error for {}: {}", url, e)
-            return json.dumps({"error": str(e), "url": url}, ensure_ascii=False)
+            return _fetch_error_json(str(e), url)
 
     def _to_markdown(self, html: str) -> str:
         """Convert HTML to markdown."""

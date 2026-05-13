@@ -78,7 +78,11 @@ class SessionManager:
     def __init__(self, workspace: Path):
         self.workspace = workspace
         self.sessions_dir = ensure_dir(self.workspace / "sessions")
-        self.legacy_sessions_dir = Path.home() / ".nanobot" / "sessions"
+        # Older installs used ~/.nanobot/sessions; newer global layout uses ~/.0xclaw/sessions.
+        self._legacy_global_session_roots = (
+            Path.home() / ".0xclaw" / "sessions",
+            Path.home() / ".nanobot" / "sessions",
+        )
         self._cache: dict[str, Session] = {}
 
     def _get_session_path(self, key: str) -> Path:
@@ -86,10 +90,10 @@ class SessionManager:
         safe_key = safe_filename(key.replace(":", "_"))
         return self.sessions_dir / f"{safe_key}.jsonl"
 
-    def _get_legacy_session_path(self, key: str) -> Path:
-        """Legacy global session path (~/.nanobot/sessions/)."""
+    def _iter_legacy_session_paths(self, key: str) -> list[Path]:
+        """Paths under legacy global session dirs that may hold this session."""
         safe_key = safe_filename(key.replace(":", "_"))
-        return self.legacy_sessions_dir / f"{safe_key}.jsonl"
+        return [root / f"{safe_key}.jsonl" for root in self._legacy_global_session_roots]
 
     def get_or_create(self, key: str) -> Session:
         """
@@ -115,13 +119,14 @@ class SessionManager:
         """Load a session from disk."""
         path = self._get_session_path(key)
         if not path.exists():
-            legacy_path = self._get_legacy_session_path(key)
-            if legacy_path.exists():
-                try:
-                    shutil.move(str(legacy_path), str(path))
-                    logger.info("Migrated session {} from legacy path", key)
-                except Exception:
-                    logger.exception("Failed to migrate session {}", key)
+            for legacy_path in self._iter_legacy_session_paths(key):
+                if legacy_path.exists():
+                    try:
+                        shutil.move(str(legacy_path), str(path))
+                        logger.info("Migrated session {} from legacy path {}", key, legacy_path)
+                    except Exception:
+                        logger.exception("Failed to migrate session {}", key)
+                    break
 
         if not path.exists():
             return None

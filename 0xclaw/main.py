@@ -52,6 +52,12 @@ ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(Path(__file__).parent))  # makes `from runtime.xxx` work when run directly
 
 from cli_args import parse_gateway_args, parse_whatsapp_args
+from orchestration.cli_session_picker import (
+    cli_talk_key,
+    fresh_cli_run_session_key,
+    merge_cli_session_rows,
+    resolve_session_pick,
+)
 from orchestration.contracts import Envelope
 from orchestration.doc_explorer import expand_doc_urls
 from orchestration.model_profiles import ModelProfile, ModelProfileResolver
@@ -65,12 +71,6 @@ from orchestration.phase_completion import (
     output_exists as phase_output_exists,
 )
 from orchestration.router import SkillRouter, keyword_matches
-from orchestration.cli_session_picker import (
-    cli_talk_key,
-    fresh_cli_run_session_key,
-    merge_cli_session_rows,
-    resolve_session_pick,
-)
 from orchestration.session_control import SessionControl
 from orchestration.state import (
     COMPLETED_PHASE_STATUSES,
@@ -1065,10 +1065,10 @@ async def run_interactive(config: Config) -> None:
     from prompt_toolkit.completion import Completer, Completion
     from prompt_toolkit.formatted_text import HTML
     from prompt_toolkit.history import FileHistory
-    from prompt_toolkit.lexers import Lexer
-    from prompt_toolkit.styles import Style
     from prompt_toolkit.key_binding import KeyBindings
     from prompt_toolkit.keys import Keys
+    from prompt_toolkit.lexers import Lexer
+    from prompt_toolkit.styles import Style
 
     active_phase: str | None = None
     active_trace_id: str | None = None
@@ -1507,7 +1507,7 @@ async def run_interactive(config: Config) -> None:
     def _advance_spinner():
         _spinner_idx[0] += 1
 
-    _ACTIVITY_CAP = 14
+    _activity_cap = 14
 
     def _append_turn_activity(metadata: dict[str, Any], content: str | None) -> None:
         raw = (content or "").strip().replace("\n", " ")
@@ -1522,7 +1522,7 @@ async def run_interactive(config: Config) -> None:
                 "text": raw,
             }
         )
-        while len(turn_activity) > _ACTIVITY_CAP:
+        while len(turn_activity) > _activity_cap:
             turn_activity.pop(0)
 
     def _live_activity_block() -> Any | None:

@@ -1,4 +1,4 @@
-"""Configuration module for nanobot."""
+"""Configuration module for the 0xClaw runtime."""
 
 from runtime.config.loader import get_config_path, load_config
 from runtime.config.schema import Config

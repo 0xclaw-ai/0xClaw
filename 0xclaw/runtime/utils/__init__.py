@@ -1,4 +1,4 @@
-"""Utility functions for nanobot."""
+"""Utility functions for the 0xClaw runtime."""
 
 from runtime.utils.helpers import ensure_dir, get_data_path, get_workspace_path
 

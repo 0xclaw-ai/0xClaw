@@ -1,1 +1,1 @@
-"""CLI module for nanobot."""
+"""CLI module for the 0xClaw runtime."""
