@@ -60,6 +60,7 @@ ignore = ["E501", "N999"]
 "0xclaw/main.py" = ["E402"]
 "scripts/run_phase.py" = ["E402"]
 "scripts/hackathon_runner.py" = ["E402", "N806"]
+"scripts/smoke_test_claude_code.py" = ["E402"]
 # Runtime engine — naming conventions reflect upstream API surfaces, not our code
 "0xclaw/runtime/agent/tools/web.py" = ["N803", "E701"]
 "0xclaw/runtime/agent/tools/registry.py" = ["N806"]

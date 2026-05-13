@@ -1,5 +1,5 @@
 """
-Entry point for running nanobot as a module: python -m nanobot
+Entry point for running the 0xClaw runtime module: ``python -m runtime``.
 """
 
 from runtime.cli.commands import app

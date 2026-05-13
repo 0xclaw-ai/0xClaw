@@ -356,7 +356,7 @@ class ToolsConfig(Base):
 
 
 class Config(BaseSettings):
-    """Root configuration for nanobot."""
+    """Root configuration for 0xClaw."""
 
     agents: AgentsConfig = Field(default_factory=AgentsConfig)
     channels: ChannelsConfig = Field(default_factory=ChannelsConfig)
@@ -443,4 +443,5 @@ class Config(BaseSettings):
                 return spec.default_api_base
         return None
 
+    # Legacy env prefix from upstream runtime; changing it would break existing NANOBOT_* deployments.
     model_config = ConfigDict(env_prefix="NANOBOT_", env_nested_delimiter="__")

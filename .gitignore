@@ -36,7 +36,7 @@ workspace/hackathon/projects/
 # DevAgent local state directory
 .devagent/
 
-# Safety: ignore any stray top-level nanobot/ directory
+# Safety: ignore stray top-level `nanobot/` directory name (legacy upstream folder)
 nanobot/
 # =============================================================================
 # Python

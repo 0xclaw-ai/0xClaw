@@ -102,7 +102,7 @@ def _build_headers(account_id: str, token: str) -> dict[str, str]:
         "chatgpt-account-id": account_id,
         "OpenAI-Beta": "responses=experimental",
         "originator": DEFAULT_ORIGINATOR,
-        "User-Agent": "nanobot (python)",
+        "User-Agent": "0xclaw (python)",
         "accept": "text/event-stream",
         "content-type": "application/json",
     }

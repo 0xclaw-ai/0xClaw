@@ -8,11 +8,11 @@ from runtime.config.schema import Config
 
 def get_config_path() -> Path:
     """Get the default configuration file path."""
-    return Path.home() / ".nanobot" / "config.json"
+    return Path.home() / ".0xclaw" / "config.json"
 
 
 def get_data_dir() -> Path:
-    """Get the nanobot data directory."""
+    """Get the 0xClaw data directory."""
     from runtime.utils.helpers import get_data_path
     return get_data_path()
 
