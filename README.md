@@ -154,5 +154,5 @@ Runtime includes adapters for **Telegram, Discord, Slack, Email, Feishu, DingTal
 </div>
 
 <div align="center">
-<sub>Built for <a href="https://dorahacks.io/hackathon/1985">UK AI Agent Hackathon EP4</a> in collaboration with 🦞 <a href="https://github.com/openclaw/openclaw">OpenClaw</a>  · Thanks to <a href="https://github.com/HKUDS/nanobot">Nanobot 🐈</a> framework</sub>
+<sub>Built for <a href="https://dorahacks.io/hackathon/1985">UK AI Agent Hackathon EP4</a> in collaboration with 🦞 <a href="https://github.com/openclaw/openclaw">OpenClaw</a>  · Thanks to 🐈 <a href="https://github.com/HKUDS/nanobot">Nanobot</a> framework</sub>
 </div>
