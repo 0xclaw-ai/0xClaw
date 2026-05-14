@@ -141,12 +141,6 @@ Runtime includes adapters for **Telegram, Discord, Slack, Email, Feishu, DingTal
 
 ---
 
-## Demo
-
-[![Demo](https://img.youtube.com/vi/jmamrAxRuec/maxresdefault.jpg)](https://www.youtube.com/watch?v=jmamrAxRuec)
-
----
-
 <div align="center">
 
 <img src="assets/banner.svg" alt="0xClaw" width="330" />
