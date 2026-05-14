@@ -1,4 +1,4 @@
-# 0xClaw
+# 🦀 0xClaw
 
 **Autonomous hackathon agent** — give it a hackathon URL; it runs research through submission on your machine.
 
@@ -66,7 +66,7 @@ Firecrawl is spawned from `0xclaw/config/config.json` with `npx -y firecrawl-mcp
 
 ---
 
-## 🚀 Run
+## 🦀 Run
 
 ```bash
 conda activate 0xclaw
@@ -126,10 +126,6 @@ Sessions are JSONL under `workspace/sessions/` (`cli:…` keys). Each launch sta
 | `!<cmd>` | Shell passthrough (same privileges as your user) |
 
 At the `/resume` row prompt, `cancel` / `q` or Ctrl+C aborts without changing the active thread. Long phases may continue in the background; Ctrl+C interrupts the current wait, not the whole CLI — use `/exit` to quit.
-
-### `CLAUDE.md`
-
-Optional Cursor / Claude Code notes at repo root. The file is **gitignored** and not shipped with the repo; maintain your own copy locally if you use it.
 
 ---
 
