@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import re
 import weakref
 from contextlib import AsyncExitStack
@@ -31,6 +32,15 @@ from runtime.session.manager import Session, SessionManager
 if TYPE_CHECKING:
     from runtime.config.schema import ChannelsConfig, ExecToolConfig, SubagentsConfig
     from runtime.cron.service import CronService
+
+# Auto-resend a turn whose LLM stream died from a transient transport fault
+# (e.g. the socket dropped while the laptop slept). Bounded so a persistently
+# unreachable endpoint still surfaces an error instead of looping forever.
+try:
+    STREAM_MAX_RETRIES = int(os.environ.get("OXCLAW_STREAM_MAX_RETRIES", "3"))
+except (TypeError, ValueError):
+    STREAM_MAX_RETRIES = 3
+STREAM_RETRY_BACKOFF_S = 2.0  # multiplied by attempt number for linear backoff
 
 
 class AgentLoop:
@@ -260,33 +270,60 @@ class AgentLoop:
 
                 # Use streaming for the LLM call so text tokens can be relayed
                 # in real-time via on_progress.  We accumulate the full response
-                # for tool-call parsing / session history.
-                streamed_chunks: list[str] = []
-                streamed_response: LLMResponse | None = None
-                async for delta_text, resp in backend_provider.chat_stream(
-                    messages=messages,
-                    tools=self.tools.get_definitions(),
-                    model=self.model,
-                    temperature=self.temperature,
-                    max_tokens=self.max_tokens,
-                    reasoning_effort=self.reasoning_effort,
-                ):
-                    if delta_text:
-                        streamed_chunks.append(delta_text)
-                        if on_progress:
-                            await on_progress(delta_text, streaming=True)
-                    if resp is not None:
-                        streamed_response = resp
+                # for tool-call parsing / session history.  A transient transport
+                # fault (e.g. the socket dropped while the laptop slept) comes back
+                # as a retryable error response; auto-resend the call a bounded
+                # number of times so the turn isn't silently lost.  Each retry
+                # emits progress, which also keeps the CLI idle watchdog alive.
+                stream_attempt = 0
+                while True:
+                    stream_attempt += 1
+                    streamed_chunks: list[str] = []
+                    streamed_response: LLMResponse | None = None
+                    async for delta_text, resp in backend_provider.chat_stream(
+                        messages=messages,
+                        tools=self.tools.get_definitions(),
+                        model=self.model,
+                        temperature=self.temperature,
+                        max_tokens=self.max_tokens,
+                        reasoning_effort=self.reasoning_effort,
+                    ):
+                        if delta_text:
+                            streamed_chunks.append(delta_text)
+                            if on_progress:
+                                await on_progress(delta_text, streaming=True)
+                        if resp is not None:
+                            streamed_response = resp
 
-                # Reconstruct response from streaming (or fall back to
-                # non-streaming if the provider returned None unexpectedly).
-                if streamed_response is not None:
-                    response = streamed_response
-                else:
-                    response = LLMResponse(
-                        content="".join(streamed_chunks) or None,
-                        finish_reason="stop",
-                    )
+                    # Reconstruct response from streaming (or fall back to
+                    # non-streaming if the provider returned None unexpectedly).
+                    if streamed_response is not None:
+                        response = streamed_response
+                    else:
+                        response = LLMResponse(
+                            content="".join(streamed_chunks) or None,
+                            finish_reason="stop",
+                        )
+
+                    if (
+                        response.finish_reason == "error"
+                        and response.retryable
+                        and stream_attempt <= STREAM_MAX_RETRIES
+                    ):
+                        backoff = STREAM_RETRY_BACKOFF_S * stream_attempt
+                        logger.warning(
+                            "Transient LLM stream error (attempt {}/{}): {} — retrying in {}s",
+                            stream_attempt, STREAM_MAX_RETRIES + 1,
+                            (response.content or "")[:160], backoff,
+                        )
+                        if on_progress:
+                            await on_progress(
+                                f"connection interrupted — retrying "
+                                f"({stream_attempt}/{STREAM_MAX_RETRIES})…"
+                            )
+                        await asyncio.sleep(backoff)
+                        continue
+                    break
 
                 if current_backend != "default_llm" and (
                     response.finish_reason == "error" or not response.has_tool_calls
