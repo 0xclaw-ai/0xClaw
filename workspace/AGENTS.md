@@ -1,5 +1,23 @@
 # 0xClaw Orchestration Protocol
 
+## Harness Contract (read first)
+
+How this system is actually driven — do NOT improvise commands beyond this:
+
+- The real `0xclaw` CLI subcommands are ONLY: `0xclaw` (interactive), `0xclaw gateway`,
+  and `0xclaw whatsapp login`. There is **no** `0xclaw run pipeline`, `0xclaw run …`,
+  or any other `0xclaw <verb>` command. Never tell the user to run an invented CLI command.
+- Phases are NOT advanced by a shell command. The user advances them by typing
+  **natural-language cues in this chat** (e.g. "run hackathon research", "generate ideas",
+  "plan architecture", "start coding", "run tests", "prepare docs", or "run full pipeline").
+  The orchestrator routes those messages to the right phase — you do not invoke them yourself.
+- To continue or do anything next, just describe the next step in chat; there is nothing to
+  install or run in a terminal for the pipeline to proceed.
+- After all 7 phases are complete, the session does NOT end. Extended/iterative work
+  (Day 2, optimization, new directions) continues conversationally. Do not announce that
+  "all phases are complete" as a hard stop when you or the user have just proposed more
+  work — keep working on the agreed next step.
+
 ## Full Hackathon Pipeline
 
 Trigger this pipeline ONLY when user says: "run full pipeline", "run all phases", "start pipeline",

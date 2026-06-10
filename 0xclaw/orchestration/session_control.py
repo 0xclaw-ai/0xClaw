@@ -27,6 +27,7 @@ class ResumeDecision:
     phase: str | None
     command: str | None
     reason: str
+    all_complete: bool = False
 
 
 class SessionControl:
@@ -60,4 +61,9 @@ class SessionControl:
             if status_map.get(p) not in COMPLETED_PHASE_STATUSES:
                 return ResumeDecision(p, PHASE_TO_COMMAND[p], "Resume from first incomplete phase")
 
-        return ResumeDecision(None, None, "All phases are complete")
+        return ResumeDecision(
+            None,
+            None,
+            "All pipeline phases complete — extended/iterative work continues in chat",
+            all_complete=True,
+        )
