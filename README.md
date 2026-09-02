@@ -12,10 +12,6 @@
 
 <br /> -->
 
-**🏆 1st Place Winner – Z.ai Bounty @ UK AI Agent Hackathon × OpenClaw 🦞.**
-
-**🏆 Finalist Winner – Anyway Bounty @ UK AI Agent Hackathon × OpenClaw 🦞.**
-
 **Give 0xClaw a hackathon URL — it researches, codes, tests, and submits, all on its own.**
 
 <br />
@@ -29,6 +25,13 @@
 </div>
 
 ---
+
+## 📰 News
+
+- **Aug 2026** 🎉 0xClaw was accepted to [EMNLP 2026](https://2026.emnlp.org/)!
+- **Aug 2026** 🚧 Code and release artifacts for the paper are coming soon.
+- **Apr 2026** 🏆 1st Place Winner – Z.ai Bounty @ UK AI Agent Hackathon × OpenClaw 🦞.
+- **Apr 2026** 🏆 Finalist Winner – Anyway Bounty @ UK AI Agent Hackathon × OpenClaw 🦞.
 
 ## 🚀 Quick start
 
