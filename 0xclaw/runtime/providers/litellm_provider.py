@@ -18,6 +18,36 @@ from runtime.providers.registry import find_by_model, find_gateway
 _ALLOWED_MSG_KEYS = frozenset({"role", "content", "tool_calls", "tool_call_id", "name", "reasoning_content", "thinking_blocks"})
 _ALNUM = string.ascii_letters + string.digits
 
+# Per-read timeout for streaming calls. A laptop sleeping mid-turn leaves the
+# model-API socket half-open; without a read timeout the stream would hang until
+# litellm's 600s default — long after the CLI idle watchdog (240s) has given up
+# on the turn, so the eventual recovery arrives with a stale request_id and is
+# dropped. Keep this well under the watchdog so a dead/idle socket surfaces as a
+# retryable error while the turn is still live. Override via OXCLAW_STREAM_TIMEOUT_S.
+try:
+    STREAM_TIMEOUT_S = float(os.environ.get("OXCLAW_STREAM_TIMEOUT_S", "120"))
+except (TypeError, ValueError):
+    STREAM_TIMEOUT_S = 120.0
+
+# Substrings identifying transient transport faults (dropped/idle sockets, gateway
+# hiccups) that are safe to resend, vs. permanent errors (400 bad request, auth)
+# that would only loop. Matched against str(exception) since the concrete class
+# varies across litellm/httpx versions and gateways.
+_TRANSIENT_ERROR_MARKERS = (
+    "timeout", "timed out", "connection", "connect error", "read error",
+    "remoteprotocol", "remote protocol", "server disconnected", "broken pipe",
+    "reset by peer", "temporarily unavailable", "service unavailable",
+    "bad gateway", "gateway timeout", "internalservererror", "internal server error",
+    "overloaded", "502", "503", "504",
+)
+
+
+def _is_transient_error(exc: BaseException) -> bool:
+    """Whether a streaming exception is a transient transport fault worth resending."""
+    text = f"{type(exc).__name__} {exc}".lower()
+    return any(marker in text for marker in _TRANSIENT_ERROR_MARKERS)
+
+
 def _short_tool_id() -> str:
     """Generate a 9-char alphanumeric ID compatible with all providers (incl. Mistral)."""
     return "".join(secrets.choice(_ALNUM) for _ in range(9))
@@ -207,6 +237,9 @@ class LiteLLMProvider(LLMProvider):
             "messages": self._sanitize_messages(self._sanitize_empty_content(messages)),
             "max_tokens": max_tokens,
             "temperature": temperature,
+            # Bound the wait so a dead/idle socket (e.g. after laptop sleep)
+            # surfaces as a retryable error instead of hanging on litellm's 600s default.
+            "timeout": STREAM_TIMEOUT_S,
         }
 
         # Apply model-specific overrides (e.g. kimi-k2.5 temperature)
@@ -240,6 +273,7 @@ class LiteLLMProvider(LLMProvider):
             return LLMResponse(
                 content=f"Error calling LLM: {str(e)}",
                 finish_reason="error",
+                retryable=_is_transient_error(e),
             )
 
     async def chat_stream(
@@ -267,6 +301,9 @@ class LiteLLMProvider(LLMProvider):
             "max_tokens": max_tokens,
             "temperature": temperature,
             "stream": True,
+            # Per-read timeout so a dead/idle socket (e.g. after laptop sleep)
+            # surfaces as a retryable error instead of hanging the whole turn.
+            "timeout": STREAM_TIMEOUT_S,
         }
 
         self._apply_model_overrides(model, kwargs)
@@ -354,6 +391,7 @@ class LiteLLMProvider(LLMProvider):
             yield "", LLMResponse(
                 content=f"Error calling LLM: {str(e)}",
                 finish_reason="error",
+                retryable=_is_transient_error(e),
             )
 
     def _parse_response(self, response: Any) -> LLMResponse:

@@ -72,6 +72,10 @@ Your workspace is at: {workspace_path}
 - Custom skills: {workspace_path}/skills/{{skill-name}}/SKILL.md
 
 ## 0xClaw Guidelines
+- There is no `0xclaw run pipeline` command. The supported CLI entry points are `0xclaw`, `0xclaw gateway`, and `0xclaw whatsapp login`.
+- Users request pipeline work in this conversation, for example "run hackathon research", "start coding", or "run full pipeline"; do not ask them to launch an invented shell command.
+- Pipeline completion does not end the conversation. Continue follow-up requests such as "continue with option A" or "continue with day 2" using the existing project and conversation.
+- Completed pipeline artifacts describe earlier work; they do not prove that a new request has been completed. Perform the requested work and verify its result before reporting completion.
 - Only store durable cross-session memory such as user language, tone, framework/tooling preferences, and other stable preferences.
 - Do NOT store transient hackathon/project pipeline state in MEMORY.md; keep that in workspace output files under hackathon/.
 - State intent before tool calls, but NEVER predict or claim results before receiving them.

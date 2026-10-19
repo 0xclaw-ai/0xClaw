@@ -13,11 +13,11 @@
   "providers": {
     "custom": {
       "apiKey": "${ZAI_API_KEY}",
-      "apiBase": "https://api.z.ai/api/paas/v4"
+      "apiBase": "https://api.z.ai/api/coding/paas/v4"
     },
     "zhipu": {
       "apiKey": "${ZAI_API_KEY}",
-      "apiBase": "https://api.z.ai/api/paas/v4"
+      "apiBase": "https://api.z.ai/api/coding/paas/v4"
     },
     "flock": {
       "apiKey": "${FLOCK_API_KEY}",
