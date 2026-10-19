@@ -26,12 +26,12 @@
 
 ---
 
-[**Paper / preprint**](https://spiral.imperial.ac.uk/entities/publication/7a460786-fba9-4b42-b9a0-d128429f67e4) · [BudgetRouter](https://github.com/0xclaw-ai/budget-router) · [DeadlineFramer](https://github.com/0xclaw-ai/deadline-framer) · [Training](https://github.com/0xclaw-ai/budget-router-trainer)
+[**Paper / preprint**](https://spiral.imperial.ac.uk/entities/publication/7a460786-fba9-4b42-b9a0-d128429f67e4) · [BudgetRouter](https://github.com/0xclaw-ai/budget-router) · [DeadlineFramer](https://github.com/0xclaw-ai/deadline-framer) · [Training](https://github.com/0xclaw-ai/budget-router-trainer) · [Model](https://huggingface.co/0xclaw-ai/budgetrouter-qwen3.5-2b-lora) · [Dataset](https://huggingface.co/datasets/0xclaw-ai/budgetrouter-hackrep)
 
 ## 📰 News
 
 - **Aug 2026** 🎉 0xClaw was accepted to [EMNLP 2026](https://2026.emnlp.org/)!
-- **Oct 2026** 📦 BudgetRouter and DeadlineFramer are available as separately installed, optional components; see below.
+- **Oct 2026** 📦 [BudgetRouter](https://github.com/0xclaw-ai/budget-router) and [DeadlineFramer](https://github.com/0xclaw-ai/deadline-framer) are available as separately installed, optional components; see [installation below](#optional-budgetrouter-and-deadlineframer).
 - **Apr 2026** 🏆 1st Place Winner – Z.ai Bounty @ UK AI Agent Hackathon × OpenClaw 🦞.
 - **Apr 2026** 🏆 Finalist Winner – Anyway Bounty @ UK AI Agent Hackathon × OpenClaw 🦞.
 
@@ -102,6 +102,7 @@ The paper's control layer is distributed in separate repositories. The default
 | DeadlineFramer | [deadline-framer](https://github.com/0xclaw-ai/deadline-framer) | Deadline guidance from control tokens and prior phase usage |
 | Training pipeline | [budget-router-trainer](https://github.com/0xclaw-ai/budget-router-trainer) | Dataset preparation and LoRA training |
 | Trained adapter | [Hugging Face](https://huggingface.co/0xclaw-ai/budgetrouter-qwen3.5-2b-lora) | LoRA weights for [Qwen3.5-2B](https://huggingface.co/Qwen/Qwen3.5-2B) |
+| Sanitized dataset | [Hugging Face Dataset](https://huggingface.co/datasets/0xclaw-ai/budgetrouter-hackrep) | Redacted training splits, provenance, and source license notes |
 
 Install each component into the same Python environment as 0xClaw:
 
