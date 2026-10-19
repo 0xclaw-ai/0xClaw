@@ -26,10 +26,12 @@
 
 ---
 
+[**Paper / preprint**](https://spiral.imperial.ac.uk/entities/publication/7a460786-fba9-4b42-b9a0-d128429f67e4) · [BudgetRouter](https://github.com/0xclaw-ai/budget-router) · [DeadlineFramer](https://github.com/0xclaw-ai/deadline-framer) · [Training](https://github.com/0xclaw-ai/budget-router-trainer)
+
 ## 📰 News
 
 - **Aug 2026** 🎉 0xClaw was accepted to [EMNLP 2026](https://2026.emnlp.org/)!
-- **Aug 2026** 🚧 Code and release artifacts for the paper are coming soon.
+- **Oct 2026** 📦 BudgetRouter and DeadlineFramer are available as separately installed, optional components; see below.
 - **Apr 2026** 🏆 1st Place Winner – Z.ai Bounty @ UK AI Agent Hackathon × OpenClaw 🦞.
 - **Apr 2026** 🏆 Finalist Winner – Anyway Bounty @ UK AI Agent Hackathon × OpenClaw 🦞.
 
@@ -63,7 +65,7 @@ claude   # one-time login
 
 Firecrawl is spawned from `0xclaw/config/config.json` with `npx -y firecrawl-mcp`, so **Node/npm** must be available when that path is enabled. It can still hit CAPTCHA / Cloudflare; pass stable doc roots with `docs=<url1>,<url2>` on the research command when possible.
 
-**Limits (short):** E2B does not bypass third-party auth or private registries — put anything the build needs into the generated project’s `.env.example` / README. There is **no** checked-in CI or automated test suite yet; use `ruff check 0xclaw launcher scripts` locally if you install dev extras.
+**Limits (short):** E2B does not bypass third-party auth or private registries — put anything the build needs into the generated project’s `.env.example` / README. Run the optional-component hook checks with `python -m pytest tests/test_phase_controls.py` after installing dev extras. There is no checked-in CI workflow yet.
 
 `requirements.txt` mirrors runtime deps for non-editable installs.
 
@@ -88,6 +90,52 @@ Telegram: set `channels.telegram` in `0xclaw/config/config.json`, then `0xclaw g
 
 ---
 
+
+### Optional BudgetRouter and DeadlineFramer
+
+The paper's control layer is distributed in separate repositories. The default
+0xClaw installation runs without these components or model dependencies.
+
+| Component | Download and installation | Purpose |
+| --- | --- | --- |
+| BudgetRouter | [budget-router](https://github.com/0xclaw-ai/budget-router) | Local model inference and phase budget adjustment |
+| DeadlineFramer | [deadline-framer](https://github.com/0xclaw-ai/deadline-framer) | Deadline guidance from control tokens and prior phase usage |
+| Training pipeline | [budget-router-trainer](https://github.com/0xclaw-ai/budget-router-trainer) | Dataset preparation and LoRA training |
+| Trained adapter | [Hugging Face](https://huggingface.co/0xclaw-ai/budgetrouter-qwen3.5-2b-lora) | LoRA weights for [Qwen3.5-2B](https://huggingface.co/Qwen/Qwen3.5-2B) |
+
+Install each component into the same Python environment as 0xClaw:
+
+```bash
+git clone https://github.com/0xclaw-ai/budget-router.git
+git clone https://github.com/0xclaw-ai/deadline-framer.git
+python -m pip install -e ./budget-router -e ./deadline-framer
+```
+
+Download the base model and adapter using the commands in the
+[BudgetRouter README](https://github.com/0xclaw-ai/budget-router#download-the-model).
+Set their local paths in the shell, or add these settings to the 0xClaw `.env`:
+
+```dotenv
+OXCLAW_PHASE_CONTROLS=budget-router,deadline-framer
+OXCLAW_BUDGET_ROUTER_MODEL_PATH=./models/qwen3.5-2b
+OXCLAW_BUDGET_ROUTER_ADAPTER_PATH=./models/budgetrouter-lora
+```
+
+Model paths are relative to the 0xClaw checkout. Launch `0xclaw` as usual.
+The component hooks run for normal phase commands, `/resume`, and `/redo` in
+the interactive pipeline. Gateway messages and the legacy single-phase scripts
+do not use these hooks.
+
+Use `OXCLAW_PHASE_CONTROLS=budget-router` for budget adjustment alone. For
+DeadlineFramer without model inference, follow its
+[standalone instructions](https://github.com/0xclaw-ai/deadline-framer#use-with-0xclaw).
+Leave `OXCLAW_PHASE_CONTROLS` empty and unset `OXCLAW_ENABLE_BUDGET_DEADLINE` to
+disable both. `OXCLAW_ENABLE_BUDGET_DEADLINE=1` is also accepted as shorthand
+for enabling both installed components in the order shown above.
+
+Component logs stay under `workspace/hackathon/` and are ignored by Git.
+
+---
 
 ## 👾 Demo Video
 
@@ -137,6 +185,20 @@ At the `/resume` row prompt, `cancel` / `q` or Ctrl+C aborts without changing th
 Default pipeline model is **`glm-5.1`** (see `0xclaw/config/model_profiles.json` for per-phase overrides and timeouts). Inference is wired for **Z.ai** and **FLock.io** via `0xclaw/config/config.json`.
 
 Per-phase model, timeout, and token settings are defined in `0xclaw/config/model_profiles.json` (source of truth).
+
+## Paper and citation
+
+Read [0xClaw: Autonomous Open-ended Agents with Phase-aware Budget Allocation and Temporal Pressure](https://spiral.imperial.ac.uk/entities/publication/7a460786-fba9-4b42-b9a0-d128429f67e4).
+
+```bibtex
+@inproceedings{zhou2026oxclaw,
+  title = {0xClaw: Autonomous Open-ended Agents with Phase-aware Budget Allocation and Temporal Pressure},
+  author = {Zhou, Yu and Dou, Xinyuan and Cao, Yudong and Song, Junhao},
+  booktitle = {Proceedings of the 2026 Conference on Empirical Methods in Natural Language Processing},
+  year = {2026},
+  url = {https://spiral.imperial.ac.uk/entities/publication/7a460786-fba9-4b42-b9a0-d128429f67e4}
+}
+```
 
 ## 💬 Channels
 

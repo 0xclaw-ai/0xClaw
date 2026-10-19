@@ -61,6 +61,7 @@ from orchestration.cli_session_picker import (
 from orchestration.contracts import Envelope
 from orchestration.doc_explorer import expand_doc_urls
 from orchestration.model_profiles import ModelProfile, ModelProfileResolver
+from orchestration.phase_controls import load_phase_controls
 from orchestration.phase_completion import (
     clear_marker,
     detect_failure_reason,
@@ -118,6 +119,8 @@ HACKATHON_RUNTIME_PATHS = (
     "progress.md",
     "pipeline_state.json",
     "metrics.jsonl",
+    "budget_router.jsonl",
+    "deadline_framer.jsonl",
     "envelopes.jsonl",
     "research_summary.md",
     "research",
@@ -1145,6 +1148,7 @@ async def run_interactive(config: Config) -> None:
     session_control = SessionControl(state_store)
     router = SkillRouter(fallback_classifier=_fallback_classifier)
     profile_resolver = ModelProfileResolver(MODEL_PROFILES_PATH)
+    phase_controls = load_phase_controls(root=ROOT, workspace=WORKSPACE)
 
     cron_path = WORKSPACE / ".cron" / "jobs.json"
     cron_path.parent.mkdir(parents=True, exist_ok=True)
@@ -1995,6 +1999,8 @@ async def run_interactive(config: Config) -> None:
                             console.print(f"  - {err}")
                         continue
                     redo_profile = profile_resolver.resolve(redo_route.phase)
+                    control_run = phase_controls.prepare(redo_route.phase, redo_cmd, redo_profile)
+                    redo_profile = control_run.profile
                     if redo_profile:
                         console.print(
                             f"[dim]Profile[/dim] {redo_profile.provider}/{redo_profile.model} "
@@ -2021,6 +2027,7 @@ async def run_interactive(config: Config) -> None:
                         + json.dumps(redo_envelope.to_dict(), ensure_ascii=False)
                     )
                     redo_timeout = redo_profile.timeout_s if redo_profile else DEFAULT_PHASE_TIMEOUT_S
+                    redo_message = control_run.frame(redo_message)
                     response = await _send_and_wait(
                         redo_message,
                         timeout_s=redo_timeout,
@@ -2263,6 +2270,8 @@ async def run_interactive(config: Config) -> None:
                             console.print(f"  - {err}")
                         continue
                     profile = profile_resolver.resolve(route.phase)
+                    control_run = phase_controls.prepare(route.phase, cmd, profile)
+                    profile = control_run.profile
                     if profile:
                         console.print(
                             f"[dim]Profile[/dim] {profile.provider}/{profile.model} "
@@ -2289,6 +2298,7 @@ async def run_interactive(config: Config) -> None:
                         + json.dumps(envelope.to_dict(), ensure_ascii=False)
                     )
                     timeout_s = profile.timeout_s if profile else DEFAULT_PHASE_TIMEOUT_S
+                    message = control_run.frame(message)
                     response = await _send_and_wait(
                         message,
                         timeout_s=timeout_s,
@@ -2340,6 +2350,8 @@ async def run_interactive(config: Config) -> None:
                     continue
 
                 profile = profile_resolver.resolve(route.phase)
+                control_run = phase_controls.prepare(route.phase, user_input, profile)
+                profile = control_run.profile
                 console.print(
                     f"[dim]Phase[/dim] {route.phase} [dim]via {route.source} "
                     f"(confidence {route.confidence:.2f})[/dim]"
@@ -2376,6 +2388,7 @@ async def run_interactive(config: Config) -> None:
                     + json.dumps(envelope.to_dict(), ensure_ascii=False)
                 )
                 timeout_s = profile.timeout_s if profile else DEFAULT_PHASE_TIMEOUT_S
+                routed_input = control_run.frame(routed_input)
                 response = await _send_and_wait(
                     routed_input,
                     timeout_s=timeout_s,

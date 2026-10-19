@@ -95,3 +95,10 @@ scripts/smoke_test_claude_code.py
 
 # Research data
 research/
+
+# Optional component logs and local model downloads
+.env.*
+!.env.example
+workspace/hackathon/budget_router.jsonl
+workspace/hackathon/deadline_framer.jsonl
+models/
