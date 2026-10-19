@@ -73,9 +73,11 @@ from orchestration.phase_completion import (
 )
 from orchestration.router import SkillRouter, keyword_matches
 from orchestration.session_control import SessionControl
+from orchestration.turn_wait import wait_for_turn
 from orchestration.state import (
     COMPLETED_PHASE_STATUSES,
     PHASE_COMPLETION_ARTIFACTS,
+    PHASES,
     OrchestratorStateMachine,
     PipelineStateStore,
     reconcile_pipeline_state,
@@ -1080,6 +1082,7 @@ async def run_interactive(config: Config) -> None:
     bg_status_line: list[str | None] = [None]
     token_counter = TokenCounter()
     _processing = [False]
+    followup_active = [False]
 
     def _set_bg_phase(phase: str | None) -> None:
         nonlocal bg_phase
@@ -1172,6 +1175,7 @@ async def run_interactive(config: Config) -> None:
         workspace=WORKSPACE,
         state_machine=state_machine,
         get_phase=lambda: active_phase or bg_phase,
+        allow_followup=lambda: followup_active[0],
     )
     install_phase_write_guards(agent.tools, write_guard)
     agent.subagents.set_write_guard(write_guard)
@@ -1475,6 +1479,7 @@ async def run_interactive(config: Config) -> None:
     turn_activity: list[dict[str, Any]] = []  # tools / MCP / progress lines for Live strip
     turn_live: list[Live | None] = [None]  # reference to active Live context
     turn_start_mono: list[float | None] = [None]  # monotonic start of current _send_and_wait turn
+    last_activity_mono: list[float | None] = [None]  # monotonic time of last activity event this turn
     last_turn_elapsed_s = [0.0]  # wall duration of last completed turn (for footer)
 
     def _print_turn_footer() -> None:
@@ -1673,6 +1678,9 @@ async def run_interactive(config: Config) -> None:
                     continue
 
                 # ── Active-scope messages: ONLY update Live, NEVER print directly ──
+                # Any active-scope traffic means the agent is still working — feed the
+                # idle watchdog in _send_and_wait so live turns aren't killed by a clock.
+                last_activity_mono[0] = time.monotonic()
                 if metadata.get("_progress"):
                     if metadata.get("_background_handoff") or _is_background_handoff_progress(msg.content or ""):
                         turn_saw_background_handoff[0] = True
@@ -1713,10 +1721,19 @@ async def run_interactive(config: Config) -> None:
                 _set_bg_phase(None)
                 background_request_id = None
                 background_deadline = None
-                console.print(
-                    f"\n[bold green]✓[/bold green]  Phase [#7c3aed]{finished}[/#7c3aed] complete"
-                    " — type [bold #fbbf24]/resume[/bold #fbbf24] to continue.\n"
-                )
+                if finished == PHASES[-1]:
+                    # Final pipeline phase done. Steering the user to /resume here is the
+                    # trap behind the "All phases complete" false-completion reports: the
+                    # pipeline is done, but the session is not. Invite open-ended chat instead.
+                    console.print(
+                        f"\n[bold green]✓[/bold green]  Phase [#7c3aed]{finished}[/#7c3aed] complete"
+                        " — pipeline finished. Tell me what to do next and I'll keep working.\n"
+                    )
+                else:
+                    console.print(
+                        f"\n[bold green]✓[/bold green]  Phase [#7c3aed]{finished}[/#7c3aed] complete"
+                        " — type [bold #fbbf24]/resume[/bold #fbbf24] to continue.\n"
+                    )
                 continue
             if background_deadline is not None and time.time() > background_deadline:
                 state_machine.checkpoint(
@@ -1751,6 +1768,7 @@ async def run_interactive(config: Config) -> None:
         *,
         timeout_s: int = DEFAULT_PHASE_TIMEOUT_S,
         phase: str | None = None,
+        followup: bool = False,
     ) -> SendWaitResult:
         nonlocal active_request_id, background_request_id
         _processing[0] = True
@@ -1762,6 +1780,7 @@ async def run_interactive(config: Config) -> None:
         turn_streamed_text.clear()
         turn_activity.clear()
         turn_start_mono[0] = time.monotonic()
+        last_activity_mono[0] = time.monotonic()
         active_request_id = _turn_request_id(next(request_counter))
         await bus.publish_inbound(InboundMessage(
             channel="cli",
@@ -1771,6 +1790,7 @@ async def run_interactive(config: Config) -> None:
             session_key_override=active_cli_session_key[0],
             metadata={
                 **({"phase": phase} if phase else {}),
+                **({"followup": True} if followup else {}),
                 "request_id": active_request_id,
             },
         ))
@@ -1799,16 +1819,24 @@ async def run_interactive(config: Config) -> None:
                 transient=True,
             ) as live:
                 turn_live[0] = live
-                try:
-                    await asyncio.wait_for(turn_done.wait(), timeout=timeout_s)
-                except asyncio.TimeoutError:
+                timeout_reason = await wait_for_turn(
+                    turn_done,
+                    started_at=turn_start_mono[0],
+                    last_activity=lambda: last_activity_mono[0],
+                    timeout_s=timeout_s,
+                    phase=phase,
+                )
+                if timeout_reason:
                     turn_done.set()
                     background_request_id = _background_request_id_for_turn(
                         active_request_id,
                         background_handoff=turn_saw_background_handoff[0],
                     )
                     active_request_id = None
-                    console.print(f"[yellow]Timed out after {timeout_s}s waiting for agent confirmation.[/yellow]")
+                    if timeout_reason == "phase":
+                        console.print(f"[yellow]Phase time budget of {timeout_s}s was reached.[/yellow]")
+                    else:
+                        console.print(f"[yellow]No activity from agent for {timeout_s}s — the turn may be stuck.[/yellow]")
                     return SendWaitResult("", timed_out=True, background_handoff=turn_saw_background_handoff[0])
         finally:
             turn_live[0] = None
@@ -2232,6 +2260,14 @@ async def run_interactive(config: Config) -> None:
                     resume_arg = parts_re[1].strip() if len(parts_re) > 1 else ""
                     decision = session_control.get_resume_decision()
                     if not decision.command:
+                        if decision.all_complete and not resume_arg:
+                            console.print(
+                                "[green]✓[/green] All 7 pipeline phases are complete.\n"
+                                "[dim]This does not end the session — to keep iterating "
+                                "(Day 2 work, optimization, new directions), just tell me what "
+                                "to do next in chat and I'll continue working.[/dim]"
+                            )
+                            continue
                         if resume_arg:
                             rows = merge_cli_session_rows(
                                 session_manager.list_sessions(),
@@ -2406,7 +2442,11 @@ async def run_interactive(config: Config) -> None:
                 active_phase = None
                 active_trace_id = None
             else:
-                response = await _send_and_wait(user_input)
+                followup_active[0] = not bg_phase and session_control.get_resume_decision().all_complete
+                try:
+                    response = await _send_and_wait(user_input, followup=followup_active[0])
+                finally:
+                    followup_active[0] = False
 
             if response.response:
                 console.print()

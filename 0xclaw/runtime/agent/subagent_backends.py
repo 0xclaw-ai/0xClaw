@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, AsyncIterator
 
 from loguru import logger
 from runtime.agent.claude_code_executor import ClaudeCodeProvider
@@ -79,6 +79,26 @@ class DefaultLLMSubagentProvider(LLMProvider):
 
     def get_default_model(self) -> str:
         return self._inner.get_default_model()
+
+    async def chat_stream(
+        self,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]] | None = None,
+        model: str | None = None,
+        max_tokens: int = 4096,
+        temperature: float = 0.7,
+        reasoning_effort: str | None = None,
+    ) -> AsyncIterator[tuple[str, LLMResponse | None]]:
+        """Preserve streaming activity and the final response from the backend."""
+        async for chunk in self._inner.chat_stream(
+            messages=messages,
+            tools=tools,
+            model=model,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            reasoning_effort=reasoning_effort,
+        ):
+            yield chunk
 
     async def close(self) -> None:  # pragma: no cover - no-op by design
         return None

@@ -16,6 +16,7 @@ def build_phase_write_guard(
     workspace: Path,
     state_machine: OrchestratorStateMachine,
     get_phase: PhaseGetter,
+    allow_followup: Callable[[], bool] | None = None,
 ) -> WriteGuard:
     workspace_root = workspace.resolve()
 
@@ -32,6 +33,9 @@ def build_phase_write_guard(
 
         phase = get_phase()
         if not phase:
+            if allow_followup and allow_followup():
+                if rel.startswith("hackathon/project/") or rel == "hackathon/progress.md":
+                    return None
             for prefix in PROTECTED_PIPELINE_PATHS:
                 normalized = prefix.strip("/")
                 if rel == normalized or rel.startswith(normalized + "/"):

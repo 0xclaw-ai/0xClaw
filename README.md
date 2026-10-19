@@ -56,7 +56,7 @@ Fill `.env` from the table below. Optional dev tools: `pip install -e .[dev]` (R
 
 | Variable / tool | Role | Where to get it | When needed |
 | --- | --- | --- | --- |
-| `ZAI_API_KEY` | Default inference (Z.ai, Claude-compatible coding API) | [Z.ai](https://z.ai/model-api) · [docs](https://docs.z.ai/) | Default `config.json` |
+| `ZAI_API_KEY` | Z.ai inference (Coding Plan in the example configuration) | [Z.ai](https://z.ai/model-api) · [docs](https://docs.z.ai/) | Default `config.json` |
 | `FLOCK_API_KEY` | Secondary provider | [FLock](https://platform.flock.io) · [docs](https://docs.flock.io/flock-products/api-platform/getting-started) | When using FLock |
 | `FIRECRAWL_API_KEY` | Research scraping via `firecrawl-mcp` | [Firecrawl](https://www.firecrawl.dev) | Heavy / gated sponsor docs |
 | `E2B_API_KEY` | Phase 6 sandbox tests | [E2B](https://e2b.dev/docs/api-key) | `subagents.testing.sandbox = "e2b"` |
@@ -65,6 +65,14 @@ Fill `.env` from the table below. Optional dev tools: `pip install -e .[dev]` (R
 
 **Suggested order:** `ZAI_API_KEY` first → add `FIRECRAWL_API_KEY` before research on doc-heavy tracks → `E2B_API_KEY` before sandbox testing → FLock / Brave only if you turn those on.
 
+The example configuration uses the Z.ai Coding Plan endpoint
+`https://api.z.ai/api/coding/paas/v4` for OpenAI-compatible requests. For a
+standard API account, set `providers.zhipu.apiBase` (and `providers.custom.apiBase`
+if using that provider) to `https://api.z.ai/api/paas/v4` instead. The Claude Code
+backend uses the separate Anthropic-compatible endpoint
+`https://api.z.ai/api/anthropic`. Choose the endpoint and key appropriate to your
+account; see the [official endpoint guide](https://docs.z.ai/devpack/tool/others).
+
 ```bash
 npm install -g @anthropic-ai/claude-code
 claude   # one-time login
@@ -72,7 +80,7 @@ claude   # one-time login
 
 Firecrawl is spawned from `0xclaw/config/config.json` with `npx -y firecrawl-mcp`, so **Node/npm** must be available when that path is enabled. It can still hit CAPTCHA / Cloudflare; pass stable doc roots with `docs=<url1>,<url2>` on the research command when possible.
 
-**Limits (short):** E2B does not bypass third-party auth or private registries — put anything the build needs into the generated project’s `.env.example` / README. Run the optional-component hook checks with `python -m pytest tests/test_phase_controls.py` after installing dev extras. There is no checked-in CI workflow yet.
+**Limits (short):** E2B does not bypass third-party auth or private registries — put anything the build needs into the generated project’s `.env.example` / README. Run `python -m pytest tests` after installing dev extras; install both optional components to include their CLI compatibility tests. These tests simulate external model responses. There is no checked-in CI workflow yet.
 
 `requirements.txt` mirrors runtime deps for non-editable installs.
 
@@ -185,6 +193,12 @@ Sessions are JSONL under `workspace/sessions/` (`cli:…` keys). Each launch sta
 | `!<cmd>` | Shell passthrough (same privileges as your user) |
 
 At the `/resume` row prompt, `cancel` / `q` or Ctrl+C aborts without changing the active thread. Long phases may continue in the background; Ctrl+C interrupts the current wait, not the whole CLI — use `/exit` to quit.
+
+After all seven phases finish, continue in chat to iterate on the existing project.
+Follow-up turns may update `hackathon/project/` and `hackathon/progress.md`; use an
+explicit phase command for other pipeline artifacts. Active conversation output
+renews the idle timeout. Phase execution retains its configured time budget,
+including adjustments made by BudgetRouter.
 
 ---
 
