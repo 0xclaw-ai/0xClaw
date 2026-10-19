@@ -26,7 +26,14 @@
 
 ---
 
-[**Paper / preprint**](https://spiral.imperial.ac.uk/entities/publication/7a460786-fba9-4b42-b9a0-d128429f67e4) · [BudgetRouter](https://github.com/0xclaw-ai/budget-router) · [DeadlineFramer](https://github.com/0xclaw-ai/deadline-framer) · [Training](https://github.com/0xclaw-ai/budget-router-trainer) · [Model](https://huggingface.co/0xclaw-ai/budgetrouter-qwen3.5-2b-lora) · [Dataset](https://huggingface.co/datasets/0xclaw-ai/budgetrouter-hackrep)
+<p align="center">
+  <a href="https://spiral.imperial.ac.uk/entities/publication/7a460786-fba9-4b42-b9a0-d128429f67e4"><strong>📄 Paper / preprint</strong></a> ·
+  <a href="https://github.com/0xclaw-ai/budget-router">🔀 BudgetRouter</a> ·
+  <a href="https://github.com/0xclaw-ai/deadline-framer">⏱️ DeadlineFramer</a> ·
+  <a href="https://github.com/0xclaw-ai/budget-router-trainer">🛠️ Training</a> ·
+  <a href="https://huggingface.co/0xclaw-ai/budgetrouter-qwen3.5-2b-lora">🤗 Model</a> ·
+  <a href="https://huggingface.co/datasets/0xclaw-ai/budgetrouter-hackrep">📊 Dataset</a>
+</p>
 
 ## 📰 News
 
